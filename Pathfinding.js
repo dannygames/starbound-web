@@ -43,12 +43,16 @@ function heuristicDiagonal(x1, y1, x2, y2) {
  * @returns {Array} Path as array of {x, y} grid coordinates, or null if no path found
  */
 export function findPath(grid, start, goal, diagonal = true) {
-  // Validate start and goal
-  if (!grid.isWalkable(start.x, start.y) || !grid.isWalkable(goal.x, goal.y)) {
-    return null
+  // Validate start - start doesn't need to be walkable (unit might be on obstacle)
+  // But goal must be walkable
+  if (!grid.isWalkable(goal.x, goal.y)) {
+    // Try to find nearest walkable tile to goal
+    const nearestGoal = findNearestWalkable(grid, goal.x, goal.y)
+    if (!nearestGoal) return null
+    goal = nearestGoal
   }
 
-  // If start equals goal, return empty path
+  // If start equals goal, return path with just the goal
   if (start.x === goal.x && start.y === goal.y) {
     return [{ x: start.x, y: start.y }]
   }

@@ -53,7 +53,7 @@ export class Unit {
     this.y = y
     this.targetX = x
     this.targetY = y
-    this.speed = 4 // Increased from 2 to 4 for faster movement
+    this.speed = 2 // Increased from 2 to 4 for faster movement
     this.direction = 0 // 0-7 for 8 directions
     
     // Pathfinding
@@ -92,7 +92,7 @@ export class Unit {
   /**
    * Main update loop - called every frame
    */
-  update(deltaTime) {
+  update(deltaTime, grid = null) {
     if (this.state === UnitState.DEAD) return
 
     // Update attack cooldown
@@ -102,10 +102,10 @@ export class Unit {
 
     // Handle combat behavior
     if (this.hasValidAttackTarget()) {
-      this.updateCombatBehavior(deltaTime)
+      this.updateCombatBehavior(deltaTime, grid)
     } else {
       this.attackTarget = null
-      this.move(deltaTime)
+      this.move(deltaTime, grid)
     }
 
     // Update animation
@@ -122,13 +122,13 @@ export class Unit {
   /**
    * Update combat behavior - move towards or attack target
    */
-  updateCombatBehavior(deltaTime) {
+  updateCombatBehavior(deltaTime, grid = null) {
     const distance = this.distanceTo(this.attackTarget)
 
     if (distance > this.attackRange) {
       // Move towards target
       this.setTarget(this.attackTarget.x, this.attackTarget.y)
-      this.move(deltaTime)
+      this.move(deltaTime, grid)
     } else {
       // In range, perform attack
       this.performAttack(deltaTime)
@@ -156,7 +156,7 @@ export class Unit {
   /**
    * Move towards target position (following path if available)
    */
-  move(deltaTime) {
+  move(deltaTime, grid = null) {
     // If we have a path, follow it
     if (this.path.length > 0) {
       this.followPath()
@@ -166,19 +166,104 @@ export class Unit {
     const dy = this.targetY - this.y
     const distance = Math.sqrt(dx * dx + dy * dy)
 
-    if (distance > 2) {
+    // Tighter threshold for pixel-perfect positioning
+    // Stop when within 1 pixel of target
+    if (distance > 1) {
       // Calculate direction for sprite orientation
       this.direction = this.calculateDirection(dx, dy)
 
       // Move towards target
       const moveX = (dx / distance) * this.speed
       const moveY = (dy / distance) * this.speed
-      this.x += moveX
-      this.y += moveY
-      this.state = UnitState.WALKING
+      
+      // Calculate new position
+      let newX = this.x
+      let newY = this.y
+      
+      // If we're very close, move exactly to the target to avoid oscillation
+      if (distance < this.speed) {
+        newX = this.targetX
+        newY = this.targetY
+      } else {
+        newX = this.x + moveX
+        newY = this.y + moveY
+      }
+      
+      // Check collision with grid if available
+      if (grid && !this.canMoveTo(newX, newY, grid)) {
+        // Try sliding along walls
+        const slideResult = this.trySlideMovement(this.x, this.y, newX, newY, grid)
+        if (slideResult.canMove) {
+          this.x = slideResult.x
+          this.y = slideResult.y
+          this.state = UnitState.WALKING
+        } else {
+          // Can't move at all, stop
+          this.state = UnitState.IDLE
+          // Clear path if stuck
+          if (this.path.length > 0) {
+            this.path = []
+            this.currentWaypointIndex = 0
+          }
+        }
+      } else {
+        // No collision, move normally
+        this.x = newX
+        this.y = newY
+        this.state = distance < this.speed ? UnitState.IDLE : UnitState.WALKING
+      }
     } else {
+      // Snap to exact target position
+      this.x = this.targetX
+      this.y = this.targetY
       this.state = UnitState.IDLE
     }
+  }
+  
+  /**
+   * Check if unit can move to a position without colliding with obstacles
+   */
+  canMoveTo(x, y, grid) {
+    // Check the unit's bounding circle against the grid
+    const radius = this.size / 2
+    const checkPoints = 8 // Check 8 points around the circle
+    
+    for (let i = 0; i < checkPoints; i++) {
+      const angle = (i / checkPoints) * Math.PI * 2
+      const checkX = x + Math.cos(angle) * radius
+      const checkY = y + Math.sin(angle) * radius
+      
+      const tile = grid.worldToGrid(checkX, checkY)
+      if (!grid.isWalkable(tile.x, tile.y)) {
+        return false
+      }
+    }
+    
+    // Also check center
+    const centerTile = grid.worldToGrid(x, y)
+    if (!grid.isWalkable(centerTile.x, centerTile.y)) {
+      return false
+    }
+    
+    return true
+  }
+  
+  /**
+   * Try to slide along walls when blocked
+   */
+  trySlideMovement(oldX, oldY, newX, newY, grid) {
+    // Try moving only horizontally
+    if (this.canMoveTo(newX, oldY, grid)) {
+      return { canMove: true, x: newX, y: oldY }
+    }
+    
+    // Try moving only vertically
+    if (this.canMoveTo(oldX, newY, grid)) {
+      return { canMove: true, x: oldX, y: newY }
+    }
+    
+    // Can't slide, stay in place
+    return { canMove: false, x: oldX, y: oldY }
   }
 
   /**
@@ -197,8 +282,12 @@ export class Unit {
     const dy = waypoint.y - this.y
     const distance = Math.sqrt(dx * dx + dy * dy)
 
+    // Tighter threshold for pixel-perfect movement
+    // Use 2 pixels for intermediate waypoints, 1 pixel for final destination
+    const threshold = (this.currentWaypointIndex === this.path.length - 1) ? 1 : 2
+
     // If close enough to waypoint, move to next one
-    if (distance < 5) {
+    if (distance < threshold) {
       this.currentWaypointIndex++
       if (this.currentWaypointIndex < this.path.length) {
         const nextWaypoint = this.path[this.currentWaypointIndex]
@@ -389,13 +478,31 @@ export class Unit {
 
     // Calculate sprite position on sheet
     // Animations run DOWN columns (vertically)
-    const col = anim.startCol + this.direction
+    // For directions 5-7 (upper right quadrant), we mirror from directions 3-1
+    let spriteDir = this.direction
+    let flipHorizontal = false
+    
+    if (this.direction >= 5) {
+      // Mirror upper-right directions from upper-left
+      // Direction 5 (down-right) mirrors from 3 (up-right) -> actually should mirror from direction 7
+      // Direction 6 (down) uses direction 2 (up) 
+      // Direction 7 (down-left) mirrors from 1 (up-left)
+      spriteDir = 8 - this.direction
+      flipHorizontal = true
+    }
+    
+    const col = anim.startCol + spriteDir
     const row = anim.startRow + this.currentFrame
     const sx = SPRITE_OFFSET_X + col * (SPRITE_WIDTH + SPRITE_SPACING_X)
     const sy = SPRITE_OFFSET_Y + row * (SPRITE_HEIGHT + SPRITE_SPACING_Y)
 
     ctx.save()
     ctx.translate(this.x, this.y)
+    
+    // Apply horizontal flip if needed
+    if (flipHorizontal) {
+      ctx.scale(-1, 1)
+    }
     
     try {
       // Draw sprite with color replacement

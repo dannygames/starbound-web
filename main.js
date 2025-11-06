@@ -4,6 +4,8 @@ import { Unit, UnitState, SPRITE_SHEET, SPRITE_WIDTH, SPRITE_HEIGHT,
 import { ColorShader, getRandomPalette } from './ColorShader.js'
 import { Grid, TILE_SIZE } from './Grid.js'
 import { findPath, smoothPath } from './Pathfinding.js'
+import { findPixelPath, optimizePixelPath } from './PixelPathfinding.js'
+import { MapEditor } from './MapEditor.js'
 
 // Game constants
 const CANVAS_WIDTH = 1200
@@ -16,6 +18,7 @@ const game = {
   spriteSheet: null,
   colorShader: null,
   grid: null,
+  mapEditor: null,
   units: [],
   selectedUnits: [],
   isSelecting: false,
@@ -38,6 +41,9 @@ function init() {
 
   // Initialize grid
   game.grid = new Grid(CANVAS_WIDTH, CANVAS_HEIGHT, TILE_SIZE)
+  
+  // Initialize map editor
+  game.mapEditor = new MapEditor(game.grid)
   
   // Add some unwalkable obstacles
   createObstacles()
@@ -108,10 +114,10 @@ function createObstacles() {
     game.grid.setTile(4, y, 1) // 1 = blocked
   }
   
-  // Horizontal wall in middle
-  for (let x = 8; x < 16; x++) {
-    game.grid.setTile(x, 5, 1)
-  }
+  // // Horizontal wall in middle
+  // for (let x = 8; x < 16; x++) {
+  //   game.grid.setTile(x, 5, 1)
+  // }
   
   // Small building/obstacle
   for (let y = 8; y < 11; y++) {
@@ -163,8 +169,8 @@ function preloadPalettes() {
 }
 
 function update(deltaTime) {
-  // Update all units
-  game.units.forEach(unit => unit.update(deltaTime))
+  // Update all units with grid for collision detection
+  game.units.forEach(unit => unit.update(deltaTime, game.grid))
 
   // Remove dead units after death animation
   game.units = game.units.filter(unit => !unit.isDeathAnimationComplete())
@@ -201,16 +207,25 @@ function render() {
     unit.draw(ctx)
   })
   
-  // Debug: Show unit count and mode
-  ctx.fillStyle = 'white'
-  ctx.font = '12px monospace'
+  // Draw map editor UI if active
+  if (game.mapEditor && game.mapEditor.isActive) {
+    game.mapEditor.drawUI(ctx, CANVAS_WIDTH, CANVAS_HEIGHT)
+    
+    // Draw brush preview
+    if (game.hoveredTile) {
+      game.mapEditor.drawBrushPreview(ctx, game.hoveredTile.x, game.hoveredTile.y, TILE_SIZE)
+    }
+  }
+  
+  // Debug: Show unit count
+  ctx.fillStyle = '#00ff00'
+  ctx.font = '12px "Courier New"'
+  ctx.textAlign = 'left'
   ctx.fillText(`Units: ${game.units.length}`, 10, 20)
   
-  if (game.obstacleEditMode) {
-    ctx.fillStyle = '#ff6600'
-    ctx.font = 'bold 14px monospace'
-    ctx.fillText('OBSTACLE EDIT MODE (O to toggle)', 10, 40)
-    ctx.fillText('Click tiles to add/remove obstacles', 10, 60)
+  if (game.mapEditor && game.mapEditor.isActive) {
+    ctx.fillStyle = '#ffff00'
+    ctx.fillText('MAP EDITOR ACTIVE (M to exit)', 10, 40)
   }
 
   // Draw selection box
@@ -232,6 +247,13 @@ function handleMouseDown(e) {
   const rect = game.canvas.getBoundingClientRect()
   const x = e.clientX - rect.left
   const y = e.clientY - rect.top
+  
+  // If map editor is active, handle editor input
+  if (game.mapEditor && game.mapEditor.isActive) {
+    const tile = game.grid.worldToGrid(x, y)
+    game.mapEditor.startDrawing(tile.x, tile.y)
+    return
+  }
 
   game.isSelecting = true
   game.selectionStart = { x, y }
@@ -271,13 +293,24 @@ function handleMouseMove(e) {
 
   // Update hovered tile
   game.hoveredTile = game.grid.worldToGrid(x, y)
+  
+  // If map editor is active and drawing, continue drawing
+  if (game.mapEditor && game.mapEditor.isActive && game.mapEditor.isDrawing) {
+    game.mapEditor.draw(game.hoveredTile.x, game.hoveredTile.y)
+  }
 
-  if (game.isSelecting) {
+  if (game.isSelecting && (!game.mapEditor || !game.mapEditor.isActive)) {
     game.selectionEnd = { x, y }
   }
 }
 
 function handleMouseUp(e) {
+  // Stop map editor drawing
+  if (game.mapEditor && game.mapEditor.isActive) {
+    game.mapEditor.stopDrawing()
+    return
+  }
+  
   if (!game.isSelecting) return
 
   const rect = game.canvas.getBoundingClientRect()
@@ -340,45 +373,36 @@ function handleMouseUp(e) {
 }
 
 /**
- * Move units to a position using pathfinding
+ * Move units to a position using pixel-perfect pathfinding
  */
 function moveUnitsToPosition(units, worldX, worldY) {
-  // Convert click position to grid coordinates
+  console.log(`Moving units to exact position: (${worldX.toFixed(1)}, ${worldY.toFixed(1)})`)
+  
+  // Check if target is in a walkable tile
   const targetTile = game.grid.worldToGrid(worldX, worldY)
-  
-  console.log(`Target tile: (${targetTile.x}, ${targetTile.y})`)
-  
-  // Make sure target tile is walkable
   if (!game.grid.isWalkable(targetTile.x, targetTile.y)) {
     console.log('Target tile is not walkable')
     return
   }
 
-  const targetWorld = game.grid.gridToWorld(targetTile.x, targetTile.y)
-
   units.forEach(unit => {
-    // Convert unit position to grid coordinates
-    const startTile = game.grid.worldToGrid(unit.x, unit.y)
+    // Use pixel-perfect pathfinding
+    const startWorld = { x: unit.x, y: unit.y }
+    const goalWorld = { x: worldX, y: worldY }
     
-    console.log(`Finding path from (${startTile.x}, ${startTile.y}) to (${targetTile.x}, ${targetTile.y})`)
+    console.log(`Finding pixel path from (${startWorld.x.toFixed(1)}, ${startWorld.y.toFixed(1)}) to (${goalWorld.x.toFixed(1)}, ${goalWorld.y.toFixed(1)})`)
     
-    // Find path from unit to target
-    const gridPath = findPath(game.grid, startTile, targetTile, true)
+    // Find pixel-perfect path
+    const pixelPath = findPixelPath(game.grid, startWorld, goalWorld)
     
-    if (gridPath) {
-      console.log(`Path found with ${gridPath.length} waypoints`)
+    if (pixelPath) {
+      // Optimize the path further
+      const optimizedPath = optimizePixelPath(game.grid, pixelPath)
       
-      // Convert grid path to world coordinates
-      const worldPath = gridPath.map(node => game.grid.gridToWorld(node.x, node.y))
-      
-      // Smooth the path
-      const gridPathSmoothed = smoothPath(game.grid, gridPath)
-      const worldPathSmoothed = gridPathSmoothed.map(node => game.grid.gridToWorld(node.x, node.y))
-      
-      console.log(`Smoothed path: ${worldPathSmoothed.length} waypoints`)
+      console.log(`Pixel path found: ${pixelPath.length} waypoints, optimized to ${optimizedPath.length} waypoints`)
       
       // Set the path for the unit
-      unit.setPath(worldPathSmoothed)
+      unit.setPath(optimizedPath)
     } else {
       console.log('No path found!')
     }
@@ -411,18 +435,73 @@ function handleRightClick(e) {
 function handleKeyDown(e) {
   game.keys[e.key] = true
 
+  // Map Editor Controls
+  if (e.key === 'm' || e.key === 'M') {
+    if (game.mapEditor) {
+      game.mapEditor.toggle()
+    }
+  }
+  
+  // Only handle editor shortcuts if editor is active
+  if (game.mapEditor && game.mapEditor.isActive) {
+    // Tool selection
+    if (e.key === '1') {
+      game.mapEditor.setTool('wall')
+    } else if (e.key === '2') {
+      game.mapEditor.setTool('eraser')
+    }
+    
+    // Brush size
+    else if (e.key === '[') {
+      game.mapEditor.setBrushSize(game.mapEditor.brushSize - 1)
+    } else if (e.key === ']') {
+      game.mapEditor.setBrushSize(game.mapEditor.brushSize + 1)
+    }
+    
+    // Save/Load
+    else if (e.key === 's' || e.key === 'S') {
+      e.preventDefault()
+      const name = prompt('Enter map name:')
+      if (name) {
+        game.mapEditor.saveMap(name)
+        alert('Map saved!')
+      }
+    } else if (e.key === 'l' || e.key === 'L') {
+      showLoadMapDialog()
+    }
+    
+    // Export/Import
+    else if (e.key === 'e' || e.key === 'E') {
+      game.mapEditor.exportMap()
+      alert('Map exported to console and clipboard!')
+    } else if (e.key === 'i' || e.key === 'I') {
+      const json = prompt('Paste map JSON:')
+      if (json) {
+        if (game.mapEditor.importMap(json)) {
+          alert('Map imported successfully!')
+        } else {
+          alert('Failed to import map')
+        }
+      }
+    }
+    
+    // Clear
+    else if (e.key === 'c' || e.key === 'C') {
+      if (confirm('Clear entire map?')) {
+        game.mapEditor.clearMap()
+      }
+    }
+    
+    return // Don't process game controls in editor mode
+  }
+
+  // Game Controls (only when editor is not active)
   // Spawn unit with spacebar (random color)
   if (e.key === ' ') {
     e.preventDefault()
     const x = Math.random() * (CANVAS_WIDTH - 100) + 50
     const y = Math.random() * (CANVAS_HEIGHT - 100) + 50
     spawnUnit(x, y) // Random color palette
-  }
-  
-  // Toggle obstacle editing mode with 'O' key
-  if (e.key === 'o' || e.key === 'O') {
-    game.obstacleEditMode = !game.obstacleEditMode
-    console.log(`Obstacle edit mode: ${game.obstacleEditMode ? 'ON - Click tiles to toggle obstacles' : 'OFF'}`)
   }
   
   // Clear all obstacles with 'C' key
@@ -434,6 +513,37 @@ function handleKeyDown(e) {
         }
       }
       console.log('All obstacles cleared')
+    }
+  }
+}
+
+/**
+ * Show load map dialog
+ */
+function showLoadMapDialog() {
+  const maps = game.mapEditor.getSavedMaps()
+  
+  if (maps.length === 0) {
+    alert('No saved maps found')
+    return
+  }
+  
+  let message = 'Saved Maps:\n\n'
+  maps.forEach((map, i) => {
+    const date = new Date(map.timestamp).toLocaleString()
+    message += `${i}: ${map.name} (${map.tileCount} tiles, ${date})\n`
+  })
+  message += '\nEnter map number to load:'
+  
+  const input = prompt(message)
+  if (input !== null) {
+    const index = parseInt(input)
+    if (!isNaN(index)) {
+      if (game.mapEditor.loadMap(index)) {
+        alert('Map loaded!')
+      } else {
+        alert('Failed to load map')
+      }
     }
   }
 }
