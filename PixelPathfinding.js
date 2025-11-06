@@ -58,7 +58,7 @@ export function findPixelPath(grid, startWorld, goalWorld) {
 
 /**
  * Check if there's a clear line of sight between two world positions
- * Uses grid for obstacle checking
+ * Uses grid for obstacle checking with thorough sampling
  */
 export function hasLineOfSightWorld(grid, fromWorld, toWorld) {
   const dx = toWorld.x - fromWorld.x
@@ -67,8 +67,11 @@ export function hasLineOfSightWorld(grid, fromWorld, toWorld) {
   
   if (distance === 0) return true
   
-  // Sample points along the line
-  const samples = Math.ceil(distance / (grid.tileSize / 2))
+  // Sample points along the line - use at least 4 samples per tile
+  // This ensures we don't miss obstacles even at diagonal angles
+  const samplesPerTile = 4
+  const distanceInTiles = distance / grid.tileSize
+  const samples = Math.ceil(distanceInTiles * samplesPerTile)
   
   for (let i = 0; i <= samples; i++) {
     const t = i / samples
@@ -86,22 +89,73 @@ export function hasLineOfSightWorld(grid, fromWorld, toWorld) {
 
 /**
  * Optimize pixel path by removing unnecessary waypoints
- * Uses line-of-sight checking
+ * Uses line-of-sight checking with maximum segment length limit
  */
-export function optimizePixelPath(grid, path) {
+export function optimizePixelPath(grid, path, maxSegmentTiles = 8) {
   if (!path || path.length <= 2) return path
   
-  const optimized = [path[0]]
+  const maxSegmentLength = maxSegmentTiles * grid.tileSize
+  
+  const optimized = [path[0]] // Always keep starting position
   let currentIndex = 0
   
+  // Special handling for first waypoint: 
+  // If unit is far from the center of its starting tile, ensure we don't skip
+  // the waypoint that helps navigate to the path properly
+  if (path.length > 2) {
+    const startTile = grid.worldToGrid(path[0].x, path[0].y)
+    const tileCenter = grid.gridToWorld(startTile.x, startTile.y)
+    const distFromCenter = Math.sqrt(
+      Math.pow(path[0].x - tileCenter.x, 2) + 
+      Math.pow(path[0].y - tileCenter.y, 2)
+    )
+    
+    // If unit is far from tile center (more than 30% of tile size)
+    // keep the first intermediate waypoint to help navigate
+    if (distFromCenter > grid.tileSize * 0.3) {
+      // Check if the second waypoint would help navigate
+      const dx1 = path[1].x - path[0].x
+      const dy1 = path[1].y - path[0].y
+      const dx2 = path[2].x - path[0].x
+      const dy2 = path[2].y - path[0].y
+      
+      // Calculate angle difference
+      const angle1 = Math.atan2(dy1, dx1)
+      const angle2 = Math.atan2(dy2, dx2)
+      let angleDiff = Math.abs(angle2 - angle1)
+      if (angleDiff > Math.PI) angleDiff = 2 * Math.PI - angleDiff
+      
+      // If there's a significant direction change (more than 30 degrees)
+      // keep the intermediate waypoint
+      if (angleDiff > Math.PI / 6) {
+        optimized.push(path[1])
+        currentIndex = 1
+      }
+    }
+  }
+  
+  // Continue optimizing from current position with length limit
   while (currentIndex < path.length - 1) {
     let furthestIndex = currentIndex + 1
     
-    // Find the furthest visible point
+    // Find the furthest visible point within max segment length
     for (let i = currentIndex + 2; i < path.length; i++) {
-      if (hasLineOfSightWorld(grid, path[currentIndex], path[i])) {
+      const from = path[currentIndex]
+      const to = path[i]
+      
+      // Calculate distance in pixels
+      const dx = to.x - from.x
+      const dy = to.y - from.y
+      const distance = Math.sqrt(dx * dx + dy * dy)
+      
+      // Check distance limit and line of sight
+      if (distance <= maxSegmentLength && hasLineOfSightWorld(grid, from, to)) {
         furthestIndex = i
+      } else if (distance > maxSegmentLength) {
+        // Stop checking once we exceed max length
+        break
       } else {
+        // No line of sight, stop checking
         break
       }
     }

@@ -53,18 +53,32 @@ export class Unit {
     this.y = y
     this.targetX = x
     this.targetY = y
-    this.speed = 2 // Increased from 2 to 4 for faster movement
+    this.speed = 4 // Movement speed in pixels per frame
     this.direction = 0 // 0-7 for 8 directions
     
     // Pathfinding
     this.path = [] // Array of waypoints to follow
     this.currentWaypointIndex = 0
+    
+    // Stuck detection
+    this.stuckTimer = 0
+    this.lastPosition = { x, y }
+    this.stuckThreshold = 500 // 0.5 seconds without progress = stuck
+    this.lastDistanceToWaypoint = Infinity
+    this.progressTimer = 0
+    
+    // Standing still detection (for canceling moves near destination)
+    this.standingStillTimer = 0
+    this.standingStillThreshold = 1500 // 1.5 seconds standing still
+    this.lastMovementCheck = { x, y }
+    this.acceptableRange = 50 // Cancel if within 50 pixels of final destination
 
     // Visual properties
     this.colorPalette = colorPalette // Color palette key (red, blue, green, etc.)
     this.width = SPRITE_WIDTH * UNIT_SCALE
     this.height = SPRITE_HEIGHT * UNIT_SCALE
     this.size = Math.max(this.width, this.height) // Use max for collision radius
+    this.collisionRadius = this.size / 4 // Radius for unit-to-unit collision
     this.spriteSheet = spriteSheet
     this.colorShader = colorShader
 
@@ -92,7 +106,7 @@ export class Unit {
   /**
    * Main update loop - called every frame
    */
-  update(deltaTime, grid = null) {
+  update(deltaTime, grid = null, units = []) {
     if (this.state === UnitState.DEAD) return
 
     // Update attack cooldown
@@ -102,10 +116,10 @@ export class Unit {
 
     // Handle combat behavior
     if (this.hasValidAttackTarget()) {
-      this.updateCombatBehavior(deltaTime, grid)
+      this.updateCombatBehavior(deltaTime, grid, units)
     } else {
       this.attackTarget = null
-      this.move(deltaTime, grid)
+      this.move(deltaTime, grid, units)
     }
 
     // Update animation
@@ -122,13 +136,13 @@ export class Unit {
   /**
    * Update combat behavior - move towards or attack target
    */
-  updateCombatBehavior(deltaTime, grid = null) {
+  updateCombatBehavior(deltaTime, grid = null, units = []) {
     const distance = this.distanceTo(this.attackTarget)
 
     if (distance > this.attackRange) {
       // Move towards target
       this.setTarget(this.attackTarget.x, this.attackTarget.y)
-      this.move(deltaTime, grid)
+      this.move(deltaTime, grid, units)
     } else {
       // In range, perform attack
       this.performAttack(deltaTime)
@@ -156,7 +170,12 @@ export class Unit {
   /**
    * Move towards target position (following path if available)
    */
-  move(deltaTime, grid = null) {
+  move(deltaTime, grid = null, units = []) {
+    // Check if unit has been standing still for too long while trying to move
+    if (this.path.length > 0) {
+      this.checkStandingStill(deltaTime)
+    }
+    
     // If we have a path, follow it
     if (this.path.length > 0) {
       this.followPath()
@@ -173,8 +192,13 @@ export class Unit {
       this.direction = this.calculateDirection(dx, dy)
 
       // Move towards target
-      const moveX = (dx / distance) * this.speed
-      const moveY = (dy / distance) * this.speed
+      let moveX = (dx / distance) * this.speed
+      let moveY = (dy / distance) * this.speed
+      
+      // Apply separation force to avoid stacking with other units
+      const separation = this.applySeparation(units)
+      moveX += separation.x
+      moveY += separation.y
       
       // Calculate new position
       let newX = this.x
@@ -189,21 +213,27 @@ export class Unit {
         newY = this.y + moveY
       }
       
-      // Check collision with grid if available
-      if (grid && !this.canMoveTo(newX, newY, grid)) {
-        // Try sliding along walls
-        const slideResult = this.trySlideMovement(this.x, this.y, newX, newY, grid)
+      // Check collision with grid and other units if available
+      if (grid && !this.canMoveTo(newX, newY, grid, units)) {
+        // Try advanced sliding along walls and around units
+        const slideResult = this.tryAdvancedSliding(this.x, this.y, newX, newY, moveX, moveY, grid, units)
         if (slideResult.canMove) {
           this.x = slideResult.x
           this.y = slideResult.y
           this.state = UnitState.WALKING
+          
+          // Check if we're making progress toward waypoint
+          this.checkStuckProgress(distance, deltaTime)
         } else {
-          // Can't move at all, stop
+          // Can't move at all
           this.state = UnitState.IDLE
-          // Clear path if stuck
+          
+          // Check if we're stuck and need to skip waypoint
           if (this.path.length > 0) {
-            this.path = []
-            this.currentWaypointIndex = 0
+            this.stuckTimer += deltaTime
+            if (this.stuckTimer > this.stuckThreshold) {
+              this.skipToNextWaypoint()
+            }
           }
         }
       } else {
@@ -211,21 +241,145 @@ export class Unit {
         this.x = newX
         this.y = newY
         this.state = distance < this.speed ? UnitState.IDLE : UnitState.WALKING
+        
+        // Reset stuck detection when moving freely
+        this.stuckTimer = 0
+        this.progressTimer = 0
+        this.lastDistanceToWaypoint = Infinity
       }
     } else {
       // Snap to exact target position
       this.x = this.targetX
       this.y = this.targetY
       this.state = UnitState.IDLE
+      
+      // Reset stuck detection
+      this.stuckTimer = 0
+      this.progressTimer = 0
+      this.lastDistanceToWaypoint = Infinity
     }
   }
   
   /**
-   * Check if unit can move to a position without colliding with obstacles
+   * Check if unit is stuck (moving but not making progress)
    */
-  canMoveTo(x, y, grid) {
+  checkStuckProgress(currentDistance, deltaTime) {
+    if (this.path.length === 0) {
+      return
+    }
+    
+    // Initialize distance tracking
+    if (this.lastDistanceToWaypoint === Infinity) {
+      this.lastDistanceToWaypoint = currentDistance
+      this.progressTimer = 0
+      return
+    }
+    
+    // Check if we're getting closer
+    const progressMade = this.lastDistanceToWaypoint - currentDistance
+    
+    // If we're making meaningful progress (more than 0.5 pixels), reset timer
+    if (progressMade > 0.5) {
+      this.progressTimer = 0
+      this.lastDistanceToWaypoint = currentDistance
+      this.stuckTimer = 0
+    } else {
+      // Not making progress, increment timer
+      this.progressTimer += deltaTime
+      
+      // If stuck for too long, skip waypoint
+      if (this.progressTimer > this.stuckThreshold) {
+        console.log(`Unit stuck - moving but not progressing (distance: ${currentDistance.toFixed(1)})`)
+        this.skipToNextWaypoint()
+        this.progressTimer = 0
+        this.lastDistanceToWaypoint = Infinity
+      }
+    }
+  }
+  
+  /**
+   * Skip to next waypoint when stuck
+   */
+  skipToNextWaypoint() {
+    console.log('Skipping waypoint')
+    this.currentWaypointIndex++
+    this.stuckTimer = 0
+    this.progressTimer = 0
+    this.lastDistanceToWaypoint = Infinity
+    
+    // If no more waypoints, clear path
+    if (this.currentWaypointIndex >= this.path.length) {
+      console.log('No more waypoints, clearing path')
+      this.path = []
+      this.currentWaypointIndex = 0
+    }
+  }
+  
+  /**
+   * Check if unit has been standing still for too long
+   * Only cancels move if unit is within acceptable range of final destination
+   */
+  checkStandingStill(deltaTime) {
+    // Check if unit has moved since last check
+    const dx = this.x - this.lastMovementCheck.x
+    const dy = this.y - this.lastMovementCheck.y
+    const distanceMoved = Math.sqrt(dx * dx + dy * dy)
+    
+    // If unit moved more than 0.5 pixels, reset standing still timer
+    if (distanceMoved > 0.5) {
+      this.standingStillTimer = 0
+      this.lastMovementCheck.x = this.x
+      this.lastMovementCheck.y = this.y
+    } else {
+      // Unit hasn't moved, increment timer
+      this.standingStillTimer += deltaTime
+      
+      // Only cancel if standing still for too long AND within acceptable range
+      if (this.standingStillTimer > this.standingStillThreshold) {
+        // Check distance to final destination
+        const finalDestination = this.path[this.path.length - 1]
+        if (finalDestination) {
+          const finalDx = finalDestination.x - this.x
+          const finalDy = finalDestination.y - this.y
+          const distanceToFinal = Math.sqrt(finalDx * finalDx + finalDy * finalDy)
+          
+          // Only cancel if within acceptable range
+          if (distanceToFinal <= this.acceptableRange) {
+            console.log(`Unit close enough to destination (${distanceToFinal.toFixed(1)}px), canceling move`)
+            this.cancelMove()
+          } else {
+            // Too far, just reset timer and keep trying
+            console.log(`Unit stuck but too far from destination (${distanceToFinal.toFixed(1)}px), skipping waypoint`)
+            this.skipToNextWaypoint()
+            this.standingStillTimer = 0
+          }
+        }
+      }
+    }
+  }
+  
+  /**
+   * Cancel current move and clear path
+   */
+  cancelMove() {
+    this.path = []
+    this.currentWaypointIndex = 0
+    this.targetX = this.x
+    this.targetY = this.y
+    this.stuckTimer = 0
+    this.progressTimer = 0
+    this.lastDistanceToWaypoint = Infinity
+    this.standingStillTimer = 0
+    this.state = UnitState.IDLE
+  }
+  
+  /**
+   * Check if unit can move to a position without colliding with obstacles or other units
+   */
+  canMoveTo(x, y, grid, units = []) {
     // Check the unit's bounding circle against the grid
-    const radius = this.size / 2
+    // Use a slightly smaller radius to be less strict (85% of actual size)
+    const radius = (this.size / 2) * 0.85
     const checkPoints = 8 // Check 8 points around the circle
     
     for (let i = 0; i < checkPoints; i++) {
@@ -245,24 +399,119 @@ export class Unit {
       return false
     }
     
+    // Check collision with other units
+    if (this.wouldCollideWithUnits(x, y, units)) {
+      return false
+    }
+    
     return true
   }
   
   /**
-   * Try to slide along walls when blocked
+   * Check if moving to a position would collide with other units
    */
-  trySlideMovement(oldX, oldY, newX, newY, grid) {
-    // Try moving only horizontally
-    if (this.canMoveTo(newX, oldY, grid)) {
+  wouldCollideWithUnits(x, y, units) {
+    for (const other of units) {
+      // Skip self and dead units
+      if (other === this || !other.isAlive()) continue
+      
+      // Calculate distance between positions
+      const dx = x - other.x
+      const dy = y - other.y
+      const distance = Math.sqrt(dx * dx + dy * dy)
+      
+      // Check if units would overlap (sum of their collision radii)
+      const minDistance = this.collisionRadius + other.collisionRadius
+      if (distance < minDistance) {
+        return true
+      }
+    }
+    return false
+  }
+  
+  /**
+   * Get nearby units within a certain radius
+   */
+  getNearbyUnits(units, radius) {
+    const nearby = []
+    for (const other of units) {
+      if (other === this || !other.isAlive()) continue
+      
+      const dx = this.x - other.x
+      const dy = this.y - other.y
+      const distance = Math.sqrt(dx * dx + dy * dy)
+      
+      if (distance < radius) {
+        nearby.push({ unit: other, distance, dx, dy })
+      }
+    }
+    return nearby
+  }
+  
+  /**
+   * Apply separation force to avoid stacking with other units
+   */
+  applySeparation(units) {
+    const separationRadius = this.collisionRadius * 3
+    const nearby = this.getNearbyUnits(units, separationRadius)
+    
+    if (nearby.length === 0) return { x: 0, y: 0 }
+    
+    let separationX = 0
+    let separationY = 0
+    
+    for (const { unit, distance, dx, dy } of nearby) {
+      // Units closer to each other have stronger push
+      const strength = 1 - (distance / separationRadius)
+      separationX += (dx / distance) * strength
+      separationY += (dy / distance) * strength
+    }
+    
+    // Normalize and scale
+    const magnitude = Math.sqrt(separationX * separationX + separationY * separationY)
+    if (magnitude > 0) {
+      separationX = (separationX / magnitude) * this.speed * 0.3
+      separationY = (separationY / magnitude) * this.speed * 0.3
+    }
+    
+    return { x: separationX, y: separationY }
+  }
+  
+  /**
+   * Advanced sliding that tries multiple directions
+   */
+  tryAdvancedSliding(oldX, oldY, newX, newY, moveX, moveY, grid, units = []) {
+    // Try full horizontal slide
+    if (this.canMoveTo(newX, oldY, grid, units)) {
       return { canMove: true, x: newX, y: oldY }
     }
     
-    // Try moving only vertically
-    if (this.canMoveTo(oldX, newY, grid)) {
+    // Try full vertical slide
+    if (this.canMoveTo(oldX, newY, grid, units)) {
       return { canMove: true, x: oldX, y: newY }
     }
     
-    // Can't slide, stay in place
+    // Try partial movements (50% in each direction)
+    const halfX = oldX + moveX * 0.5
+    const halfY = oldY + moveY * 0.5
+    
+    if (this.canMoveTo(halfX, halfY, grid, units)) {
+      return { canMove: true, x: halfX, y: halfY }
+    }
+    
+    // Try diagonal alternatives
+    const altAngles = [-0.3, 0.3, -0.6, 0.6] // Try angles 17°, 34° off
+    for (const angleOffset of altAngles) {
+      const angle = Math.atan2(moveY, moveX) + angleOffset
+      const altX = oldX + Math.cos(angle) * this.speed
+      const altY = oldY + Math.sin(angle) * this.speed
+      
+      if (this.canMoveTo(altX, altY, grid, units)) {
+        return { canMove: true, x: altX, y: altY }
+      }
+    }
+    
+    // Can't move at all
     return { canMove: false, x: oldX, y: oldY }
   }
 
@@ -392,6 +641,16 @@ export class Unit {
     this.currentWaypointIndex = 0
     this.attackTarget = null
 
+    // Reset stuck detection for new path
+    this.stuckTimer = 0
+    this.progressTimer = 0
+    this.lastDistanceToWaypoint = Infinity
+    
+    // Reset standing still detection for new path
+    this.standingStillTimer = 0
+    this.lastMovementCheck.x = this.x
+    this.lastMovementCheck.y = this.y
+
     // Set initial target to first waypoint
     if (path.length > 0) {
       this.targetX = path[0].x
@@ -499,6 +758,9 @@ export class Unit {
     ctx.save()
     ctx.translate(this.x, this.y)
     
+    // Draw shadow (before sprite so it appears underneath)
+    this.drawShadow(ctx)
+    
     // Apply horizontal flip if needed
     if (flipHorizontal) {
       ctx.scale(-1, 1)
@@ -546,6 +808,25 @@ export class Unit {
     }
 
     ctx.restore()
+  }
+
+  /**
+   * Draw shadow under unit
+   */
+  drawShadow(ctx) {
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)' // Semi-transparent black
+    ctx.beginPath()
+    // Shadow is an ellipse at the base of the unit
+    ctx.ellipse(
+      0, // x - centered
+      this.height / 5, // y - near bottom of unit
+      this.width / 4, // horizontal radius
+      this.height / 7, // vertical radius (flatter)
+      0, // rotation
+      0, // start angle
+      Math.PI * 2 // end angle
+    )
+    ctx.fill()
   }
 
   /**

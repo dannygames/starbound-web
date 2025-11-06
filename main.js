@@ -169,8 +169,8 @@ function preloadPalettes() {
 }
 
 function update(deltaTime) {
-  // Update all units with grid for collision detection
-  game.units.forEach(unit => unit.update(deltaTime, game.grid))
+  // Update all units with grid and other units for collision detection
+  game.units.forEach(unit => unit.update(deltaTime, game.grid, game.units))
 
   // Remove dead units after death animation
   game.units = game.units.filter(unit => !unit.isDeathAnimationComplete())

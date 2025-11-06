@@ -152,8 +152,9 @@ function reconstructPath(goalNode) {
 /**
  * Smooth a path by removing unnecessary waypoints
  * Uses line-of-sight check to skip intermediate nodes
+ * Limits segment length to prevent very long lines
  */
-export function smoothPath(grid, path) {
+export function smoothPath(grid, path, maxSegmentLength = 3) {
   if (!path || path.length <= 2) return path
 
   const smoothed = [path[0]]
@@ -162,11 +163,24 @@ export function smoothPath(grid, path) {
   while (currentIndex < path.length - 1) {
     let furthestIndex = currentIndex + 1
 
-    // Find the furthest visible point
+    // Find the furthest visible point within max segment length
     for (let i = currentIndex + 2; i < path.length; i++) {
-      if (hasLineOfSight(grid, path[currentIndex], path[i])) {
+      const from = path[currentIndex]
+      const to = path[i]
+      
+      // Calculate distance in tiles
+      const dx = to.x - from.x
+      const dy = to.y - from.y
+      const distance = Math.sqrt(dx * dx + dy * dy)
+      
+      // Check distance limit and line of sight
+      if (distance <= maxSegmentLength && hasLineOfSight(grid, from, to)) {
         furthestIndex = i
+      } else if (distance > maxSegmentLength) {
+        // Stop checking once we exceed max length
+        break
       } else {
+        // No line of sight, stop checking
         break
       }
     }
@@ -180,13 +194,18 @@ export function smoothPath(grid, path) {
 
 /**
  * Check if there's a clear line of sight between two points
+ * Uses denser sampling for longer distances to ensure accuracy
  */
 function hasLineOfSight(grid, from, to) {
   const dx = to.x - from.x
   const dy = to.y - from.y
-  const steps = Math.max(Math.abs(dx), Math.abs(dy))
-
-  if (steps === 0) return true
+  const distance = Math.sqrt(dx * dx + dy * dy)
+  
+  if (distance === 0) return true
+  
+  // Use at least as many steps as the distance, but more for longer lines
+  // This ensures we check every tile the line passes through
+  const steps = Math.ceil(distance * 2)
 
   for (let i = 1; i <= steps; i++) {
     const t = i / steps
