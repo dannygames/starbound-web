@@ -53,7 +53,7 @@ export class Unit {
     this.y = y
     this.targetX = x
     this.targetY = y
-    this.speed = 4 // Movement speed in pixels per frame
+    this.speed = 2 // Movement speed in pixels per frame
     this.direction = 0 // 0-7 for 8 directions
     
     // Pathfinding
@@ -87,6 +87,12 @@ export class Unit {
     this.currentFrame = 0
     this.frameTimer = 0
 
+    // Walk/Run animation layers
+    this.walkLayers = {} // Organized by direction
+    this.walkLayersLoaded = false
+    this.walkFrameCount = 12 // 12 frames per direction
+    this.loadWalkLayers()
+
     // Death animation layers
     this.deathLayers = []
     this.deathLayersLoaded = false
@@ -110,6 +116,39 @@ export class Unit {
 
     // Unique ID for tracking
     this.id = `unit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+  }
+
+  /**
+   * Load walk/run animation layer images
+   * Directions 0-7 (0=Up, going clockwise)
+   * Files: 0=UP, 1=UP-RIGHT, 2=RIGHT, 3=DOWN-RIGHT, 8=DOWN
+   * Left side (5,6,7) will mirror from right side (3,2,1)
+   */
+  loadWalkLayers() {
+    // Available file directions: 0 (UP), 1, 2, 3, 8 (DOWN), plus 5, 6, 7 which we won't use
+    const fileDirections = [0, 1, 2, 3, 5, 6, 7, 8]
+    let totalImages = fileDirections.length * this.walkFrameCount
+    let loadedCount = 0
+    
+    fileDirections.forEach(dir => {
+      this.walkLayers[dir] = []
+      
+      for (let frame = 1; frame <= this.walkFrameCount; frame++) {
+        const img = new Image()
+        img.onload = () => {
+          loadedCount++
+          if (loadedCount === totalImages) {
+            this.walkLayersLoaded = true
+            console.log('All walk animation layers loaded!')
+          }
+        }
+        img.onerror = () => {
+          console.error(`Failed to load walk layer: /images/maps/units/zergling/run/${dir}_Layer ${frame}.png`)
+        }
+        img.src = `/images/maps/units/zergling/run/${dir}_Layer ${frame}.png`
+        this.walkLayers[dir].push(img)
+      }
+    })
   }
 
   /**
@@ -588,12 +627,18 @@ export class Unit {
 
   /**
    * Calculate direction (0-7) from dx, dy
+   * 0=Up, 1=Up-Right, 2=Right, 3=Down-Right, 4=Down, 5=Down-Left, 6=Left, 7=Up-Left
    */
   calculateDirection(dx, dy) {
-    const angle = Math.atan2(dy, dx)
-    let dir = Math.round(angle / (Math.PI / 4)) + 4
-    if (dir < 0) dir += 8
-    if (dir >= 8) dir -= 8
+    // Calculate angle (0 = right, going clockwise due to canvas Y-down coordinate system)
+    let angle = Math.atan2(dy, dx)
+    // Rotate by +90 degrees to make 0 = up (since canvas Y goes down, dy < 0 is up)
+    angle += Math.PI / 2
+    // Convert to direction (0-7)
+    let dir = Math.round(angle / (Math.PI / 4))
+    // Normalize to 0-7 range
+    while (dir < 0) dir += 8
+    while (dir >= 8) dir -= 8
     return dir
   }
 
@@ -634,7 +679,24 @@ export class Unit {
       return
     }
     
-    // For normal sprite sheet animations
+    // For walk animation with layers
+    if (this.state === UnitState.WALKING && this.walkLayersLoaded) {
+      this.frameTimer += deltaTime
+      const frameDuration = 1000 / 12 // 12 fps for walk animation
+
+      if (this.frameTimer >= frameDuration) {
+        this.frameTimer = 0
+        this.currentFrame++
+        
+        // Loop animation
+        if (this.currentFrame >= this.walkFrameCount) {
+          this.currentFrame = 0
+        }
+      }
+      return
+    }
+    
+    // For normal sprite sheet animations (fallback)
     const animType = this.getAnimationType()
     const anim = SPRITE_SHEET[animType]
     
@@ -814,8 +876,11 @@ export class Unit {
     // If dead and death layers are loaded, use layer-based animation
     if (this.state === UnitState.DEAD && this.deathLayersLoaded && this.deathLayers.length > 0) {
       this.drawDeathAnimation(ctx)
+    } else if ((this.state === UnitState.WALKING || this.state === UnitState.IDLE) && this.walkLayersLoaded) {
+      // Use walk layer images
+      this.drawWalkAnimation(ctx)
     } else {
-      // Use sprite sheet for normal animations
+      // Use sprite sheet for normal animations (fallback)
       this.drawSpriteSheetAnimation(ctx)
     }
 
@@ -825,6 +890,65 @@ export class Unit {
     }
 
     ctx.restore()
+  }
+
+  /**
+   * Draw walk animation using layer images
+   * Direction mapping: 0=Up, 1=Up-Right, 2=Right, 3=Down-Right, 4=Down, 5=Down-Left, 6=Left, 7=Up-Left
+   * Files available: 0 (UP), 1, 2, 3, 8 (DOWN) - left side mirrors right side
+   */
+  drawWalkAnimation(ctx) {
+    // Map internal direction (0-7) to file direction
+    // Right half of circle uses real files, left half mirrors them
+    let fileDir = this.direction
+    let shouldMirrorHorizontal = false
+    
+    // Direction mapping:
+    // 0 = UP → file 0
+    // 1 = UP-RIGHT → file 1
+    // 2 = RIGHT → file 2
+    // 3 = DOWN-RIGHT → file 3
+    // 4 = DOWN → file 8
+    // 5 = DOWN-LEFT → mirror file 3
+    // 6 = LEFT → mirror file 2
+    // 7 = UP-LEFT → mirror file 1
+    
+    if (this.direction === 4) {
+      fileDir = 8 // DOWN uses file 8
+    } else if (this.direction === 5) {
+      fileDir = 3 // DOWN-LEFT mirrors DOWN-RIGHT
+      shouldMirrorHorizontal = true
+    } else if (this.direction === 6) {
+      fileDir = 2 // LEFT mirrors RIGHT
+      shouldMirrorHorizontal = true
+    } else if (this.direction === 7) {
+      fileDir = 1 // UP-LEFT mirrors UP-RIGHT
+      shouldMirrorHorizontal = true
+    }
+    
+    // Get the walk layers for this direction
+    const directionLayers = this.walkLayers[fileDir]
+    if (!directionLayers) {
+      return // No layers for this direction
+    }
+    
+    const frameIndex = Math.floor(this.currentFrame)
+    if (frameIndex >= 0 && frameIndex < directionLayers.length) {
+      const layer = directionLayers[frameIndex]
+      if (layer && layer.complete) {
+        // Apply horizontal mirroring if needed (for left side directions)
+        if (shouldMirrorHorizontal) {
+          ctx.scale(-1, 1)
+        }
+        
+        // Draw the walk layer centered on the unit
+        ctx.drawImage(
+          layer,
+          -layer.width / 2,
+          -layer.height / 2
+        )
+      }
+    }
   }
 
   /**
