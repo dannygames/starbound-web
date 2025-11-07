@@ -104,6 +104,10 @@ export class Unit {
     this.deathTimer = 0
     this.deathRemovalDelay = 5000 // 5 seconds
 
+    // Death sound
+    this.deathSound = new Audio('/sound/zzedth00.wav')
+    this.deathSound.volume = 0.5 // Set volume to 50%
+
     // Combat properties
     this.health = 100
     this.maxHealth = 100
@@ -808,6 +812,14 @@ export class Unit {
     this.deathTimer = 0
     this.selected = false
     this.attackTarget = null
+    
+    // Play death sound
+    if (this.deathSound) {
+      this.deathSound.currentTime = 0 // Reset to start in case it's already playing
+      this.deathSound.play().catch(error => {
+        console.log('Could not play death sound:', error)
+      })
+    }
   }
 
   /**
