@@ -181,11 +181,11 @@ export class Grid {
   /**
    * Draw a path on the grid
    */
-  drawPath(ctx, path, color = 'rgba(0, 255, 0, 0.5)') {
+  drawPath(ctx, path, color = '#249824') {
     if (!path || path.length === 0) return
 
     ctx.strokeStyle = color
-    ctx.lineWidth = 3
+    ctx.lineWidth = 1
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
 

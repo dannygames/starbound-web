@@ -321,9 +321,9 @@ function render() {
 
   // Draw selection box
   if (game.isSelecting) {
-    ctx.strokeStyle = '#10fc18'
-    ctx.lineWidth = 2
-    ctx.setLineDash([5, 5])
+    ctx.strokeStyle = '#249824'
+    ctx.lineWidth = 1
+    // ctx.setLineDash([5, 5])
     ctx.strokeRect(
       game.selectionStart.x,
       game.selectionStart.y,
