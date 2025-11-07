@@ -92,6 +92,10 @@ export class Unit {
     this.deathLayersLoaded = false
     this.loadDeathLayers()
 
+    // Death timer (for removing corpses after delay)
+    this.deathTimer = 0
+    this.deathRemovalDelay = 5000 // 5 seconds
+
     // Combat properties
     this.health = 100
     this.maxHealth = 100
@@ -138,8 +142,11 @@ export class Unit {
     // Always update animation (including death animation)
     this.updateAnimation(deltaTime)
     
-    // Skip game logic if dead
-    if (this.state === UnitState.DEAD) return
+    // Skip game logic if dead (but still track death timer)
+    if (this.state === UnitState.DEAD) {
+      this.deathTimer += deltaTime
+      return
+    }
 
     // Update attack cooldown
     if (this.attackCooldown > 0) {
@@ -734,6 +741,7 @@ export class Unit {
     this.state = UnitState.DEAD
     this.currentFrame = 0
     this.frameTimer = 0
+    this.deathTimer = 0
     this.selected = false
     this.attackTarget = null
   }
@@ -755,14 +763,23 @@ export class Unit {
   }
 
   /**
-   * Check if death animation is complete
+   * Check if death animation is complete and enough time has passed to remove unit
    */
   isDeathAnimationComplete() {
-    if (this.state === UnitState.DEAD && this.deathLayersLoaded) {
+    if (this.state !== UnitState.DEAD) {
+      return false
+    }
+    
+    // Check if death timer has reached the removal delay
+    if (this.deathTimer < this.deathRemovalDelay) {
+      return false
+    }
+    
+    // Also check if animation frames are complete
+    if (this.deathLayersLoaded) {
       return this.currentFrame >= this.deathLayers.length - 1
     }
-    return this.state === UnitState.DEAD && 
-           this.currentFrame >= SPRITE_SHEET.death.frames - 1
+    return this.currentFrame >= SPRITE_SHEET.death.frames - 1
   }
 
   /**
