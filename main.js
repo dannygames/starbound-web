@@ -9,8 +9,8 @@ import { MapEditor } from './MapEditor.js'
 import { Cursor } from './Cursor.js'
 
 // Game constants
-const CANVAS_WIDTH = 1200
-const CANVAS_HEIGHT = 600
+const CANVAS_WIDTH = 640
+const CANVAS_HEIGHT = 480
 
 // Game state
 const game = {
@@ -245,6 +245,11 @@ function update(deltaTime) {
   if (game.cursor) {
     game.cursor.update(deltaTime)
   }
+  
+  // Update map editor UI if active
+  if (game.mapEditor && game.mapEditor.isActive) {
+    game.mapEditor.updateUI(game)
+  }
 
   updateStats()
 }
@@ -293,14 +298,9 @@ function render() {
     unit.draw(ctx)
   })
   
-  // Draw map editor UI if active
-  if (game.mapEditor && game.mapEditor.isActive) {
-    game.mapEditor.drawUI(ctx, CANVAS_WIDTH, CANVAS_HEIGHT, game)
-    
-    // Draw brush preview (only in tile editing mode, not background mode)
-    if (game.hoveredTile && !game.mapEditor.backgroundImageMode) {
-      game.mapEditor.drawBrushPreview(ctx, game.hoveredTile.x, game.hoveredTile.y, TILE_SIZE)
-    }
+  // Draw brush preview for map editor (only in tile editing mode, not background mode)
+  if (game.mapEditor && game.mapEditor.isActive && game.hoveredTile && !game.mapEditor.backgroundImageMode) {
+    game.mapEditor.drawBrushPreview(ctx, game.hoveredTile.x, game.hoveredTile.y, TILE_SIZE)
   }
   
   // Debug: Show unit count

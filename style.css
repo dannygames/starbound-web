@@ -211,6 +211,107 @@ header, .stats, #gameCanvas {
   100% { opacity: 1; }
 }
 
+/* Map Editor Panel */
+.map-editor-panel {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  width: 280px;
+  background: rgba(0, 0, 0, 0.95);
+  border: 2px solid #00ff00;
+  box-shadow: 
+    0 0 20px rgba(0, 255, 0, 0.3),
+    inset 0 0 20px rgba(0, 0, 0, 0.8);
+  z-index: 100;
+  font-family: 'Courier New', monospace;
+}
+
+.map-editor-panel.background-mode {
+  border-color: #ff00ff;
+  box-shadow: 
+    0 0 20px rgba(255, 0, 255, 0.3),
+    inset 0 0 20px rgba(0, 0, 0, 0.8);
+}
+
+.map-editor-panel .panel-header {
+  background: linear-gradient(180deg, #003300 0%, #001100 100%);
+  padding: 0.75rem;
+  border-bottom: 2px solid #00ff00;
+  text-align: center;
+}
+
+.map-editor-panel.background-mode .panel-header {
+  background: linear-gradient(180deg, #330033 0%, #110011 100%);
+  border-bottom-color: #ff00ff;
+}
+
+.map-editor-panel h3 {
+  margin: 0;
+  color: #00ff00;
+  font-size: 1em;
+  font-weight: bold;
+  letter-spacing: 0.1em;
+  text-shadow: 0 0 10px rgba(0, 255, 0, 0.5);
+}
+
+.map-editor-panel.background-mode h3 {
+  color: #ff00ff;
+  text-shadow: 0 0 10px rgba(255, 0, 255, 0.5);
+}
+
+.map-editor-panel .panel-content {
+  padding: 1rem;
+  color: #00cc00;
+  font-size: 0.8em;
+  line-height: 1.6;
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+.map-editor-panel.background-mode .panel-content {
+  color: #ff00ff;
+}
+
+.map-editor-panel .panel-content .info-line {
+  margin-bottom: 0.4rem;
+}
+
+.map-editor-panel .panel-content .section-title {
+  color: #00ff00;
+  font-weight: bold;
+  margin-top: 0.8rem;
+  margin-bottom: 0.4rem;
+  text-transform: uppercase;
+}
+
+.map-editor-panel.background-mode .panel-content .section-title {
+  color: #ff00ff;
+}
+
+.map-editor-panel .panel-content .control-line {
+  margin-bottom: 0.3rem;
+  padding-left: 0.5rem;
+}
+
+/* Scrollbar styling for editor panel */
+.map-editor-panel .panel-content::-webkit-scrollbar {
+  width: 8px;
+}
+
+.map-editor-panel .panel-content::-webkit-scrollbar-track {
+  background: #000000;
+}
+
+.map-editor-panel .panel-content::-webkit-scrollbar-thumb {
+  background: #003300;
+  border: 1px solid #00ff00;
+}
+
+.map-editor-panel.background-mode .panel-content::-webkit-scrollbar-thumb {
+  background: #330033;
+  border-color: #ff00ff;
+}
+
 @media (max-width: 768px) {
   header h1 {
     font-size: 1.5em;
@@ -224,6 +325,11 @@ header, .stats, #gameCanvas {
   .stats {
     gap: 1rem;
     font-size: 0.85em;
+  }
+  
+  .map-editor-panel {
+    width: 240px;
+    font-size: 0.9em;
   }
 }
 

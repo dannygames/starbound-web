@@ -81,6 +81,8 @@ export class Unit {
     this.collisionRadius = this.size / 4 // Radius for unit-to-unit collision
     this.spriteSheet = spriteSheet
     this.colorShader = colorShader
+    this.shadowScale = .8 // Scale factor for shadow size
+    this.selectionScale = 1.25 // Scale factor for selection circle size
 
     // Animation state
     this.state = UnitState.IDLE
@@ -1042,9 +1044,9 @@ export class Unit {
     // Shadow is an ellipse at the base of the unit
     ctx.ellipse(
       0, // x - centered
-      this.height / 5, // y - near bottom of unit
-      this.width / 4, // horizontal radius
-      this.height / 7, // vertical radius (flatter)
+      this.height / 6, // y - near bottom of unit
+      (this.width / 4) * this.shadowScale, // horizontal radius
+      (this.height / 6) * this.shadowScale, // vertical radius (flatter)
       0, // rotation
       0, // start angle
       Math.PI * 2 // end angle
@@ -1056,17 +1058,19 @@ export class Unit {
    * Draw selection circle underneath unit
    */
   drawSelectionCircle(ctx) {
-    // Draw a filled green circle underneath the unit
-    // ctx.fillStyle = 'rgba(16, 252, 24, 0.4)' // Semi-transparent green
-    // ctx.beginPath()
-    // ctx.ellipse(0, 5, this.size / 2 + 8, this.size / 3, 0, 0, Math.PI * 2)
-    // ctx.fill()
-    
-    // Draw outline
+    // Draw outline using same shape as shadow
     ctx.strokeStyle = '#249824'
     ctx.lineWidth = 2
     ctx.beginPath()
-    ctx.ellipse(0, 9, this.size / 20 + 8, this.size / 8, 0, 0, Math.PI * 2)
+    ctx.ellipse(
+      0, // x - centered
+      this.height / 6, // y - near bottom of unit (same as shadow)
+      (this.width / 4) * this.shadowScale * this.selectionScale, // horizontal radius
+      (this.height / 6) * this.shadowScale * this.selectionScale, // vertical radius
+      0, // rotation
+      0, // start angle
+      Math.PI * 2 // end angle
+    )
     ctx.stroke()
   }
 

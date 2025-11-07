@@ -9,7 +9,6 @@
   <body>
     <div id="app">
       <header>
-        <h1>STARBOUND: ZERGLING SWARM</h1>
         <div class="controls">
           <p class="instructions">
             <strong>[SELECT]</strong> Click unit • <strong>[MOVE]</strong> Click tile • <strong>[ATTACK]</strong> Right-click • <strong>[SPAWN]</strong> Space • <strong>[MAP EDITOR]</strong> M key
@@ -26,6 +25,15 @@
           <div class="stat-item">
             <span class="stat-label">Selected:</span>
             <span id="selectedCount">0</span>
+          </div>
+        </div>
+        <!-- Map Editor UI Panel -->
+        <div id="mapEditorPanel" class="map-editor-panel" style="display: none;">
+          <div class="panel-header">
+            <h3 id="editorTitle">MAP EDITOR</h3>
+          </div>
+          <div class="panel-content" id="editorContent">
+            <!-- Content will be updated by MapEditor.js -->
           </div>
         </div>
       </div>

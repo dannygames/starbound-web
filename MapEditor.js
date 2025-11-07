@@ -12,6 +12,11 @@ export class MapEditor {
     // Background image positioning mode
     this.backgroundImageMode = false
     this.backgroundMoveStep = 5 // pixels per key press
+    
+    // UI elements
+    this.panel = document.getElementById('mapEditorPanel')
+    this.title = document.getElementById('editorTitle')
+    this.content = document.getElementById('editorContent')
   }
 
   /**
@@ -20,6 +25,15 @@ export class MapEditor {
   toggle() {
     this.isActive = !this.isActive
     console.log(`Map Editor: ${this.isActive ? 'ACTIVE' : 'INACTIVE'}`)
+    
+    // Show/hide UI panel
+    if (this.panel) {
+      this.panel.style.display = this.isActive ? 'block' : 'none'
+      if (this.isActive) {
+        this.updateUI()
+      }
+    }
+    
     return this.isActive
   }
 
@@ -29,6 +43,7 @@ export class MapEditor {
   setTool(tool) {
     this.currentTool = tool
     console.log(`Tool selected: ${tool}`)
+    this.updateUI()
   }
 
   /**
@@ -37,6 +52,7 @@ export class MapEditor {
   setBrushSize(size) {
     this.brushSize = Math.max(1, Math.min(5, size))
     console.log(`Brush size: ${this.brushSize}`)
+    this.updateUI()
   }
   
   /**
@@ -45,6 +61,17 @@ export class MapEditor {
   toggleBackgroundMode() {
     this.backgroundImageMode = !this.backgroundImageMode
     console.log(`Background Image Mode: ${this.backgroundImageMode ? 'ACTIVE' : 'INACTIVE'}`)
+    
+    // Update UI styling and content
+    if (this.panel) {
+      if (this.backgroundImageMode) {
+        this.panel.classList.add('background-mode')
+      } else {
+        this.panel.classList.remove('background-mode')
+      }
+      this.updateUI()
+    }
+    
     return this.backgroundImageMode
   }
   
@@ -58,6 +85,7 @@ export class MapEditor {
     game.backgroundImageOffset.y += dy * this.backgroundMoveStep
     
     console.log(`Background position: (${game.backgroundImageOffset.x}, ${game.backgroundImageOffset.y})`)
+    this.updateUI(game)
   }
   
   /**
@@ -75,6 +103,7 @@ export class MapEditor {
   adjustBackgroundOpacity(game, delta) {
     game.backgroundImageOpacity = Math.max(0, Math.min(1, game.backgroundImageOpacity + delta))
     console.log(`Background opacity: ${game.backgroundImageOpacity.toFixed(2)}`)
+    this.updateUI(game)
   }
 
   /**
@@ -296,86 +325,56 @@ export class MapEditor {
   }
 
   /**
-   * Draw editor UI overlay
+   * Update the HTML UI panel
    */
-  drawUI(ctx, canvasWidth, canvasHeight, game) {
-    if (!this.isActive) return
-
-    const panelWidth = 250
-    const panelHeight = this.backgroundImageMode ? 400 : 300
-    const x = canvasWidth - panelWidth - 20
-    const y = 20
-
-    // Panel background
-    ctx.fillStyle = 'rgba(0, 0, 0, 0.9)'
-    ctx.fillRect(x, y, panelWidth, panelHeight)
-
-    // Panel border
-    ctx.strokeStyle = this.backgroundImageMode ? '#ff00ff' : '#00ff00'
-    ctx.lineWidth = 2
-    ctx.strokeRect(x, y, panelWidth, panelHeight)
-
-    // Title
-    ctx.fillStyle = this.backgroundImageMode ? '#ff00ff' : '#00ff00'
-    ctx.font = 'bold 16px "Courier New"'
-    ctx.textAlign = 'center'
-    const title = this.backgroundImageMode ? 'BACKGROUND MODE' : 'MAP EDITOR'
-    ctx.fillText(title, x + panelWidth / 2, y + 25)
-
-    // Instructions
-    ctx.font = '12px "Courier New"'
-    ctx.textAlign = 'left'
-    ctx.fillStyle = this.backgroundImageMode ? '#ff00ff' : '#00cc00'
+  updateUI(game) {
+    if (!this.isActive || !this.content) return
     
-    let yPos = y + 50
-    const lineHeight = 20
-
-    let instructions
+    // Update title
+    if (this.title) {
+      this.title.textContent = this.backgroundImageMode ? 'BACKGROUND MODE' : 'MAP EDITOR'
+    }
+    
+    let html = ''
+    
     if (this.backgroundImageMode) {
       const bgX = game?.backgroundImageOffset?.x || 0
       const bgY = game?.backgroundImageOffset?.y || 0
       const bgOpacity = game?.backgroundImageOpacity || 1
       const bgLoaded = game?.backgroundImageLoaded ? 'YES' : 'NO'
       
-      instructions = [
-        `Image Loaded: ${bgLoaded}`,
-        `Position: (${bgX}, ${bgY})`,
-        `Opacity: ${bgOpacity.toFixed(2)}`,
-        '',
-        'CONTROLS:',
-        'O - Load Image',
-        'Arrow Keys - Move',
-        '+/- - Opacity',
-        'R - Reset Position',
-        'B - Exit BG Mode',
-        'M - Exit Editor'
-      ]
+      html = `
+        <div class="info-line">Image Loaded: ${bgLoaded}</div>
+        <div class="info-line">Position: (${bgX}, ${bgY})</div>
+        <div class="info-line">Opacity: ${bgOpacity.toFixed(2)}</div>
+        
+        <div class="section-title">CONTROLS:</div>
+        <div class="control-line">O - Load Image</div>
+        <div class="control-line">Arrow Keys - Move</div>
+        <div class="control-line">+/- - Opacity</div>
+        <div class="control-line">R - Reset Position</div>
+        <div class="control-line">B - Exit BG Mode</div>
+        <div class="control-line">M - Exit Editor</div>
+      `
     } else {
-      instructions = [
-        `Tool: ${this.currentTool.toUpperCase()}`,
-        `Brush: ${this.brushSize}x${this.brushSize}`,
-        '',
-        'CONTROLS:',
-        '1 - Wall Tool',
-        '2 - Eraser Tool',
-        '[ ] - Brush Size',
-        'B - Background Mode',
-        'E - Export Map',
-        'S - Save Map',
-        'L - Load Menu',
-        'C - Clear Map',
-        'M - Toggle Editor'
-      ]
+      html = `
+        <div class="info-line">Tool: ${this.currentTool.toUpperCase()}</div>
+        <div class="info-line">Brush: ${this.brushSize}x${this.brushSize}</div>
+        
+        <div class="section-title">CONTROLS:</div>
+        <div class="control-line">1 - Wall Tool</div>
+        <div class="control-line">2 - Eraser Tool</div>
+        <div class="control-line">[ ] - Brush Size</div>
+        <div class="control-line">B - Background Mode</div>
+        <div class="control-line">E - Export Map</div>
+        <div class="control-line">S - Save Map</div>
+        <div class="control-line">L - Load Menu</div>
+        <div class="control-line">C - Clear Map</div>
+        <div class="control-line">M - Toggle Editor</div>
+      `
     }
-
-    instructions.forEach(line => {
-      if (line === '') {
-        yPos += lineHeight / 2
-      } else {
-        ctx.fillText(line, x + 10, yPos)
-        yPos += lineHeight
-      }
-    })
+    
+    this.content.innerHTML = html
   }
 
   /**
