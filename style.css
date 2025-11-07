@@ -121,7 +121,7 @@ header h1 {
     0 0 20px rgba(0, 255, 0, 0.1),
     inset 0 0 50px rgba(0, 0, 0, 0.9),
     inset 0 0 100px rgba(0, 20, 0, 0.3);
-  cursor: crosshair;
+  cursor: none;
   image-rendering: pixelated;
   image-rendering: crisp-edges;
   position: relative;

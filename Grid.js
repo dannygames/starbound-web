@@ -129,19 +129,19 @@ export class Grid {
         const tileX = x * this.tileSize
         const tileY = y * this.tileSize
 
-        // Draw blocked tiles with better visuals
+        // Draw blocked tiles with semi-transparent visuals
         if (showBlocked && this.tiles[y][x] === 1) {
-          // Dark red/brown fill
-          ctx.fillStyle = 'rgba(80, 20, 20, 0.7)'
+          // Semi-transparent red/brown fill
+          ctx.fillStyle = 'rgba(80, 20, 20, 0.3)'
           ctx.fillRect(tileX, tileY, this.tileSize, this.tileSize)
           
-          // Red border
-          ctx.strokeStyle = 'rgba(180, 40, 40, 0.9)'
+          // Semi-transparent red border
+          ctx.strokeStyle = 'rgba(180, 40, 40, 0.5)'
           ctx.lineWidth = 2
           ctx.strokeRect(tileX + 1, tileY + 1, this.tileSize - 2, this.tileSize - 2)
           
-          // Diagonal lines pattern
-          ctx.strokeStyle = 'rgba(120, 30, 30, 0.5)'
+          // Semi-transparent diagonal lines pattern
+          ctx.strokeStyle = 'rgba(120, 30, 30, 0.3)'
           ctx.lineWidth = 1
           ctx.beginPath()
           ctx.moveTo(tileX, tileY)

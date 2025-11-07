@@ -8,6 +8,10 @@ export class MapEditor {
     this.brushSize = 1
     this.isDrawing = false
     this.savedMaps = this.loadSavedMaps()
+    
+    // Background image positioning mode
+    this.backgroundImageMode = false
+    this.backgroundMoveStep = 5 // pixels per key press
   }
 
   /**
@@ -33,6 +37,44 @@ export class MapEditor {
   setBrushSize(size) {
     this.brushSize = Math.max(1, Math.min(5, size))
     console.log(`Brush size: ${this.brushSize}`)
+  }
+  
+  /**
+   * Toggle background image positioning mode
+   */
+  toggleBackgroundMode() {
+    this.backgroundImageMode = !this.backgroundImageMode
+    console.log(`Background Image Mode: ${this.backgroundImageMode ? 'ACTIVE' : 'INACTIVE'}`)
+    return this.backgroundImageMode
+  }
+  
+  /**
+   * Move background image
+   */
+  moveBackgroundImage(game, dx, dy) {
+    if (!this.backgroundImageMode) return
+    
+    game.backgroundImageOffset.x += dx * this.backgroundMoveStep
+    game.backgroundImageOffset.y += dy * this.backgroundMoveStep
+    
+    console.log(`Background position: (${game.backgroundImageOffset.x}, ${game.backgroundImageOffset.y})`)
+  }
+  
+  /**
+   * Reset background image position
+   */
+  resetBackgroundPosition(game) {
+    game.backgroundImageOffset.x = 0
+    game.backgroundImageOffset.y = 0
+    console.log('Background position reset')
+  }
+  
+  /**
+   * Adjust background image opacity
+   */
+  adjustBackgroundOpacity(game, delta) {
+    game.backgroundImageOpacity = Math.max(0, Math.min(1, game.backgroundImageOpacity + delta))
+    console.log(`Background opacity: ${game.backgroundImageOpacity.toFixed(2)}`)
   }
 
   /**
@@ -256,11 +298,11 @@ export class MapEditor {
   /**
    * Draw editor UI overlay
    */
-  drawUI(ctx, canvasWidth, canvasHeight) {
+  drawUI(ctx, canvasWidth, canvasHeight, game) {
     if (!this.isActive) return
 
     const panelWidth = 250
-    const panelHeight = 300
+    const panelHeight = this.backgroundImageMode ? 400 : 300
     const x = canvasWidth - panelWidth - 20
     const y = 20
 
@@ -269,38 +311,62 @@ export class MapEditor {
     ctx.fillRect(x, y, panelWidth, panelHeight)
 
     // Panel border
-    ctx.strokeStyle = '#00ff00'
+    ctx.strokeStyle = this.backgroundImageMode ? '#ff00ff' : '#00ff00'
     ctx.lineWidth = 2
     ctx.strokeRect(x, y, panelWidth, panelHeight)
 
     // Title
-    ctx.fillStyle = '#00ff00'
+    ctx.fillStyle = this.backgroundImageMode ? '#ff00ff' : '#00ff00'
     ctx.font = 'bold 16px "Courier New"'
     ctx.textAlign = 'center'
-    ctx.fillText('MAP EDITOR', x + panelWidth / 2, y + 25)
+    const title = this.backgroundImageMode ? 'BACKGROUND MODE' : 'MAP EDITOR'
+    ctx.fillText(title, x + panelWidth / 2, y + 25)
 
     // Instructions
     ctx.font = '12px "Courier New"'
     ctx.textAlign = 'left'
-    ctx.fillStyle = '#00cc00'
+    ctx.fillStyle = this.backgroundImageMode ? '#ff00ff' : '#00cc00'
     
     let yPos = y + 50
     const lineHeight = 20
 
-    const instructions = [
-      `Tool: ${this.currentTool.toUpperCase()}`,
-      `Brush: ${this.brushSize}x${this.brushSize}`,
-      '',
-      'CONTROLS:',
-      '1 - Wall Tool',
-      '2 - Eraser Tool',
-      '[ ] - Brush Size',
-      'E - Export Map',
-      'S - Save Map',
-      'L - Load Menu',
-      'C - Clear Map',
-      'M - Toggle Editor'
-    ]
+    let instructions
+    if (this.backgroundImageMode) {
+      const bgX = game?.backgroundImageOffset?.x || 0
+      const bgY = game?.backgroundImageOffset?.y || 0
+      const bgOpacity = game?.backgroundImageOpacity || 1
+      const bgLoaded = game?.backgroundImageLoaded ? 'YES' : 'NO'
+      
+      instructions = [
+        `Image Loaded: ${bgLoaded}`,
+        `Position: (${bgX}, ${bgY})`,
+        `Opacity: ${bgOpacity.toFixed(2)}`,
+        '',
+        'CONTROLS:',
+        'O - Load Image',
+        'Arrow Keys - Move',
+        '+/- - Opacity',
+        'R - Reset Position',
+        'B - Exit BG Mode',
+        'M - Exit Editor'
+      ]
+    } else {
+      instructions = [
+        `Tool: ${this.currentTool.toUpperCase()}`,
+        `Brush: ${this.brushSize}x${this.brushSize}`,
+        '',
+        'CONTROLS:',
+        '1 - Wall Tool',
+        '2 - Eraser Tool',
+        '[ ] - Brush Size',
+        'B - Background Mode',
+        'E - Export Map',
+        'S - Save Map',
+        'L - Load Menu',
+        'C - Clear Map',
+        'M - Toggle Editor'
+      ]
+    }
 
     instructions.forEach(line => {
       if (line === '') {

@@ -87,6 +87,11 @@ export class Unit {
     this.currentFrame = 0
     this.frameTimer = 0
 
+    // Death animation layers
+    this.deathLayers = []
+    this.deathLayersLoaded = false
+    this.loadDeathLayers()
+
     // Combat properties
     this.health = 100
     this.maxHealth = 100
@@ -104,9 +109,36 @@ export class Unit {
   }
 
   /**
+   * Load death animation layer images
+   */
+  loadDeathLayers() {
+    const layerCount = 7
+    let loadedCount = 0
+    
+    for (let i = 1; i <= layerCount; i++) {
+      const img = new Image()
+      img.onload = () => {
+        loadedCount++
+        if (loadedCount === layerCount) {
+          this.deathLayersLoaded = true
+        }
+      }
+      img.onerror = () => {
+        console.error(`Failed to load death layer ${i}: /images/maps/units/zergling/death/Layer ${i}.png`)
+      }
+      img.src = `/images/maps/units/zergling/death/Layer ${i}.png`
+      this.deathLayers.push(img)
+    }
+  }
+
+  /**
    * Main update loop - called every frame
    */
   update(deltaTime, grid = null, units = []) {
+    // Always update animation (including death animation)
+    this.updateAnimation(deltaTime)
+    
+    // Skip game logic if dead
     if (this.state === UnitState.DEAD) return
 
     // Update attack cooldown
@@ -121,9 +153,6 @@ export class Unit {
       this.attackTarget = null
       this.move(deltaTime, grid, units)
     }
-
-    // Update animation
-    this.updateAnimation(deltaTime)
   }
 
   /**
@@ -574,15 +603,33 @@ export class Unit {
    * Update sprite animation
    */
   updateAnimation(deltaTime) {
-    const animType = this.getAnimationType()
-    const anim = SPRITE_SHEET[animType]
-    
     // Don't animate if idle - keep first frame
     if (this.state === UnitState.IDLE) {
       this.currentFrame = 0
       this.frameTimer = 0
       return
     }
+    
+    // For death animation with layers
+    if (this.state === UnitState.DEAD && this.deathLayersLoaded) {
+      this.frameTimer += deltaTime
+      const frameDuration = 1000 / 10 // 10 fps for death animation
+
+      if (this.frameTimer >= frameDuration) {
+        this.frameTimer = 0
+        this.currentFrame++
+        
+        // Stay on last frame when death animation completes
+        if (this.currentFrame >= this.deathLayers.length) {
+          this.currentFrame = this.deathLayers.length - 1
+        }
+      }
+      return
+    }
+    
+    // For normal sprite sheet animations
+    const animType = this.getAnimationType()
+    const anim = SPRITE_SHEET[animType]
     
     this.frameTimer += deltaTime
     const frameDuration = 1000 / anim.fps
@@ -686,6 +733,7 @@ export class Unit {
     this.health = 0
     this.state = UnitState.DEAD
     this.currentFrame = 0
+    this.frameTimer = 0
     this.selected = false
     this.attackTarget = null
   }
@@ -710,6 +758,9 @@ export class Unit {
    * Check if death animation is complete
    */
   isDeathAnimationComplete() {
+    if (this.state === UnitState.DEAD && this.deathLayersLoaded) {
+      return this.currentFrame >= this.deathLayers.length - 1
+    }
     return this.state === UnitState.DEAD && 
            this.currentFrame >= SPRITE_SHEET.death.frames - 1
   }
@@ -732,6 +783,55 @@ export class Unit {
       return
     }
 
+    ctx.save()
+    ctx.translate(this.x, this.y)
+    
+    // Draw shadow (before sprite so it appears underneath)
+    this.drawShadow(ctx)
+    
+    // Draw selection indicator (if selected)
+    if (this.selected && this.isAlive()) {
+      this.drawSelectionCircle(ctx)
+    }
+
+    // If dead and death layers are loaded, use layer-based animation
+    if (this.state === UnitState.DEAD && this.deathLayersLoaded && this.deathLayers.length > 0) {
+      this.drawDeathAnimation(ctx)
+    } else {
+      // Use sprite sheet for normal animations
+      this.drawSpriteSheetAnimation(ctx)
+    }
+
+    // Draw health bar
+    if (this.health < this.maxHealth && this.isAlive()) {
+      this.drawHealthBar(ctx)
+    }
+
+    ctx.restore()
+  }
+
+  /**
+   * Draw death animation using layer images
+   */
+  drawDeathAnimation(ctx) {
+    const layerIndex = Math.floor(this.currentFrame)
+    if (layerIndex >= 0 && layerIndex < this.deathLayers.length) {
+      const layer = this.deathLayers[layerIndex]
+      if (layer && layer.complete) {
+        // Draw the death layer centered on the unit
+        ctx.drawImage(
+          layer,
+          -layer.width / 2,
+          -layer.height / 2
+        )
+      }
+    }
+  }
+
+  /**
+   * Draw animation from sprite sheet
+   */
+  drawSpriteSheetAnimation(ctx) {
     const animType = this.getAnimationType()
     const anim = SPRITE_SHEET[animType]
 
@@ -754,12 +854,6 @@ export class Unit {
     const row = anim.startRow + this.currentFrame
     const sx = SPRITE_OFFSET_X + col * (SPRITE_WIDTH + SPRITE_SPACING_X)
     const sy = SPRITE_OFFSET_Y + row * (SPRITE_HEIGHT + SPRITE_SPACING_Y)
-
-    ctx.save()
-    ctx.translate(this.x, this.y)
-    
-    // Draw shadow (before sprite so it appears underneath)
-    this.drawShadow(ctx)
     
     // Apply horizontal flip if needed
     if (flipHorizontal) {
@@ -796,18 +890,6 @@ export class Unit {
       ctx.arc(0, 0, 20, 0, Math.PI * 2)
       ctx.fill()
     }
-
-    // Draw selection circle
-    if (this.selected && this.isAlive()) {
-      this.drawSelectionCircle(ctx)
-    }
-
-    // Draw health bar
-    if (this.health < this.maxHealth && this.isAlive()) {
-      this.drawHealthBar(ctx)
-    }
-
-    ctx.restore()
   }
 
   /**
@@ -830,13 +912,20 @@ export class Unit {
   }
 
   /**
-   * Draw selection circle around unit
+   * Draw selection circle underneath unit
    */
   drawSelectionCircle(ctx) {
-    ctx.strokeStyle = '#00ff00'
+    // Draw a filled green circle underneath the unit
+    // ctx.fillStyle = 'rgba(16, 252, 24, 0.4)' // Semi-transparent green
+    // ctx.beginPath()
+    // ctx.ellipse(0, 5, this.size / 2 + 8, this.size / 3, 0, 0, Math.PI * 2)
+    // ctx.fill()
+    
+    // Draw outline
+    ctx.strokeStyle = '#249824'
     ctx.lineWidth = 2
     ctx.beginPath()
-    ctx.arc(0, 0, this.size / 2 + 5, 0, Math.PI * 2)
+    ctx.ellipse(0, 9, this.size / 20 + 8, this.size / 8, 0, 0, Math.PI * 2)
     ctx.stroke()
   }
 

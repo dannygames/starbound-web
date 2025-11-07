@@ -6,6 +6,7 @@ import { Grid, TILE_SIZE } from './Grid.js'
 import { findPath, smoothPath } from './Pathfinding.js'
 import { findPixelPath, optimizePixelPath } from './PixelPathfinding.js'
 import { MapEditor } from './MapEditor.js'
+import { Cursor } from './Cursor.js'
 
 // Game constants
 const CANVAS_WIDTH = 1200
@@ -28,7 +29,19 @@ const game = {
   mouse: { x: 0, y: 0 },
   hoveredTile: null,
   clickedOnUnit: false,
-  obstacleEditMode: false
+  obstacleEditMode: false,
+  
+  // Background image overlay
+  backgroundImage: null,
+  backgroundImageLoaded: false,
+  backgroundImageOffset: { x: 0, y: 0 },
+  backgroundImageOpacity: 1.0,
+  
+  // Animated cursor
+  cursor: null,
+  
+  // Debug mode
+  debugMode: false
 }
 
 // Initialize game
@@ -67,6 +80,21 @@ function init() {
     
     console.log(`Spawned ${game.units.length} units`)
   }
+  
+  // Initialize animated cursor with multiple states
+  game.cursor = new Cursor({
+    default: [
+      '/images/cursor/cursor_1.png',
+      '/images/cursor/cursor_2.png',
+      '/images/cursor/cursor_3.png',
+      '/images/cursor/cursor_4.png',
+      '/images/cursor/cursor_5.png'
+    ],
+    dragSelect: '/images/cursor/cursor_drag_select.png'
+  }, 100) // 100ms per frame for animated states
+  
+  // Load background image
+  loadBackgroundImage('/images/maps/space.png')
 
   // Event listeners
   game.canvas.addEventListener('mousedown', handleMouseDown)
@@ -104,32 +132,70 @@ function spawnUnit(x, y, colorPalette = null) {
 }
 
 /**
+ * Load a background image overlay
+ */
+function loadBackgroundImage(imagePath) {
+  game.backgroundImage = new Image()
+  game.backgroundImage.onload = () => {
+    game.backgroundImageLoaded = true
+    console.log('Background image loaded:', imagePath)
+  }
+  game.backgroundImage.onerror = () => {
+    console.error('Failed to load background image:', imagePath)
+    game.backgroundImageLoaded = false
+  }
+  game.backgroundImage.src = imagePath
+}
+
+/**
+ * Load background image from file picker
+ */
+function loadBackgroundImageFromFile() {
+  const input = document.createElement('input')
+  input.type = 'file'
+  input.accept = 'image/*'
+  
+  input.onchange = (e) => {
+    const file = e.target.files[0]
+    if (file) {
+      const reader = new FileReader()
+      reader.onload = (event) => {
+        loadBackgroundImage(event.target.result)
+      }
+      reader.readAsDataURL(file)
+    }
+  }
+  
+  input.click()
+}
+
+/**
  * Create obstacles on the map
  */
 function createObstacles() {
   // Create some walls and obstacles
   
   // Vertical wall on left side
-  for (let y = 2; y < 10; y++) {
-    game.grid.setTile(4, y, 1) // 1 = blocked
-  }
+  // for (let y = 2; y < 10; y++) {
+  //   game.grid.setTile(4, y, 1) // 1 = blocked
+  // }
   
   // // Horizontal wall in middle
   // for (let x = 8; x < 16; x++) {
   //   game.grid.setTile(x, 5, 1)
   // }
   
-  // Small building/obstacle
-  for (let y = 8; y < 11; y++) {
-    for (let x = 10; x < 13; x++) {
-      game.grid.setTile(x, y, 1)
-    }
-  }
+  // // Small building/obstacle
+  // for (let y = 8; y < 11; y++) {
+  //   for (let x = 10; x < 13; x++) {
+  //     game.grid.setTile(x, y, 1)
+  //   }
+  // }
   
-  // Another vertical wall
-  for (let y = 1; y < 6; y++) {
-    game.grid.setTile(18, y, 1)
-  }
+  // // Another vertical wall
+  // for (let y = 1; y < 6; y++) {
+  //   game.grid.setTile(18, y, 1)
+  // }
   
   // Random scattered obstacles
   const randomObstacles = [
@@ -175,6 +241,11 @@ function update(deltaTime) {
   // Remove dead units after death animation
   game.units = game.units.filter(unit => !unit.isDeathAnimationComplete())
 
+  // Update cursor animation
+  if (game.cursor) {
+    game.cursor.update(deltaTime)
+  }
+
   updateStats()
 }
 
@@ -182,25 +253,40 @@ function render() {
   const ctx = game.ctx
 
   // Clear canvas
-  ctx.fillStyle = '#0a0a15'
+  ctx.fillStyle = '#808080'
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
   // Draw tile grid (show grid lines and blocked tiles)
   game.grid.draw(ctx, true, true)
-
-  // Highlight hovered tile
-  if (game.hoveredTile) {
-    game.grid.highlightTile(ctx, game.hoveredTile.x, game.hoveredTile.y, 'rgba(255, 255, 255, 0.2)')
+  
+  // Draw background image overlay (if loaded)
+  if (game.backgroundImageLoaded && game.backgroundImage) {
+    ctx.save()
+    ctx.globalAlpha = game.backgroundImageOpacity
+    ctx.drawImage(
+      game.backgroundImage,
+      game.backgroundImageOffset.x,
+      game.backgroundImageOffset.y
+    )
+    ctx.restore()
   }
 
-  // Draw unit paths (for debugging/visualization)
-  game.units.forEach(unit => {
-    if (unit.selected && unit.path.length > 0) {
-      // Convert path from world coords to grid coords for visualization
-      const gridPath = unit.path.map(p => game.grid.worldToGrid(p.x, p.y))
-      game.grid.drawPath(ctx, gridPath, 'rgba(0, 255, 0, 0.3)')
+  // Debug visualizations
+  if (game.debugMode) {
+    // Highlight hovered tile
+    if (game.hoveredTile) {
+      game.grid.highlightTile(ctx, game.hoveredTile.x, game.hoveredTile.y, 'rgba(255, 255, 255, 0.2)')
     }
-  })
+
+    // Draw unit paths (for debugging/visualization)
+    game.units.forEach(unit => {
+      if (unit.selected && unit.path.length > 0) {
+        // Convert path from world coords to grid coords for visualization
+        const gridPath = unit.path.map(p => game.grid.worldToGrid(p.x, p.y))
+        game.grid.drawPath(ctx, gridPath, 'rgba(0, 255, 0, 0.3)')
+      }
+    })
+  }
 
   // Draw units
   game.units.forEach(unit => {
@@ -209,10 +295,10 @@ function render() {
   
   // Draw map editor UI if active
   if (game.mapEditor && game.mapEditor.isActive) {
-    game.mapEditor.drawUI(ctx, CANVAS_WIDTH, CANVAS_HEIGHT)
+    game.mapEditor.drawUI(ctx, CANVAS_WIDTH, CANVAS_HEIGHT, game)
     
-    // Draw brush preview
-    if (game.hoveredTile) {
+    // Draw brush preview (only in tile editing mode, not background mode)
+    if (game.hoveredTile && !game.mapEditor.backgroundImageMode) {
       game.mapEditor.drawBrushPreview(ctx, game.hoveredTile.x, game.hoveredTile.y, TILE_SIZE)
     }
   }
@@ -227,10 +313,15 @@ function render() {
     ctx.fillStyle = '#ffff00'
     ctx.fillText('MAP EDITOR ACTIVE (M to exit)', 10, 40)
   }
+  
+  if (game.debugMode) {
+    ctx.fillStyle = '#ff00ff'
+    ctx.fillText('DEBUG MODE (D to toggle)', 10, game.mapEditor && game.mapEditor.isActive ? 60 : 40)
+  }
 
   // Draw selection box
   if (game.isSelecting) {
-    ctx.strokeStyle = '#00ff00'
+    ctx.strokeStyle = '#10fc18'
     ctx.lineWidth = 2
     ctx.setLineDash([5, 5])
     ctx.strokeRect(
@@ -240,6 +331,11 @@ function render() {
       game.selectionEnd.y - game.selectionStart.y
     )
     ctx.setLineDash([])
+  }
+  
+  // Draw animated cursor
+  if (game.cursor) {
+    game.cursor.draw(ctx)
   }
 }
 
@@ -290,6 +386,11 @@ function handleMouseMove(e) {
   const y = e.clientY - rect.top
 
   game.mouse = { x, y }
+  
+  // Update cursor position
+  if (game.cursor) {
+    game.cursor.setPosition(x, y)
+  }
 
   // Update hovered tile
   game.hoveredTile = game.grid.worldToGrid(x, y)
@@ -301,6 +402,12 @@ function handleMouseMove(e) {
 
   if (game.isSelecting && (!game.mapEditor || !game.mapEditor.isActive)) {
     game.selectionEnd = { x, y }
+    
+    // Switch to drag select cursor when actively dragging
+    const dragDistance = Math.abs(x - game.selectionStart.x) + Math.abs(y - game.selectionStart.y)
+    if (dragDistance > 5 && game.cursor && game.cursor.getState() !== 'dragSelect') {
+      game.cursor.setState('dragSelect')
+    }
   }
 }
 
@@ -318,6 +425,11 @@ function handleMouseUp(e) {
   const y = e.clientY - rect.top
 
   game.isSelecting = false
+  
+  // Reset cursor to default state
+  if (game.cursor) {
+    game.cursor.setState('default')
+  }
 
   // Select units in box
   const minX = Math.min(game.selectionStart.x, x)
@@ -435,6 +547,13 @@ function handleRightClick(e) {
 function handleKeyDown(e) {
   game.keys[e.key] = true
 
+  // Debug mode toggle
+  if (e.key === 'd' || e.key === 'D') {
+    game.debugMode = !game.debugMode
+    console.log(`Debug mode ${game.debugMode ? 'enabled' : 'disabled'}`)
+    return
+  }
+
   // Map Editor Controls
   if (e.key === 'm' || e.key === 'M') {
     if (game.mapEditor) {
@@ -444,6 +563,47 @@ function handleKeyDown(e) {
   
   // Only handle editor shortcuts if editor is active
   if (game.mapEditor && game.mapEditor.isActive) {
+    // Toggle background image mode
+    if (e.key === 'b' || e.key === 'B') {
+      game.mapEditor.toggleBackgroundMode()
+      return
+    }
+    
+    // Background image mode controls
+    if (game.mapEditor.backgroundImageMode) {
+      // Load background image
+      if (e.key === 'o' || e.key === 'O') {
+        loadBackgroundImageFromFile()
+      }
+      // Arrow keys to move background
+      else if (e.key === 'ArrowUp') {
+        e.preventDefault()
+        game.mapEditor.moveBackgroundImage(game, 0, -1)
+      } else if (e.key === 'ArrowDown') {
+        e.preventDefault()
+        game.mapEditor.moveBackgroundImage(game, 0, 1)
+      } else if (e.key === 'ArrowLeft') {
+        e.preventDefault()
+        game.mapEditor.moveBackgroundImage(game, -1, 0)
+      } else if (e.key === 'ArrowRight') {
+        e.preventDefault()
+        game.mapEditor.moveBackgroundImage(game, 1, 0)
+      }
+      // Opacity adjustment
+      else if (e.key === '+' || e.key === '=') {
+        game.mapEditor.adjustBackgroundOpacity(game, 0.1)
+      } else if (e.key === '-' || e.key === '_') {
+        game.mapEditor.adjustBackgroundOpacity(game, -0.1)
+      }
+      // Reset position
+      else if (e.key === 'r' || e.key === 'R') {
+        game.mapEditor.resetBackgroundPosition(game)
+      }
+      
+      return // Don't process other controls in background mode
+    }
+    
+    // Tile editing mode controls
     // Tool selection
     if (e.key === '1') {
       game.mapEditor.setTool('wall')
@@ -502,6 +662,18 @@ function handleKeyDown(e) {
     const x = Math.random() * (CANVAS_WIDTH - 100) + 50
     const y = Math.random() * (CANVAS_HEIGHT - 100) + 50
     spawnUnit(x, y) // Random color palette
+  }
+  
+  // Kill selected units with Delete or Backspace key
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault()
+    const selectedUnits = game.units.filter(unit => unit.selected)
+    if (selectedUnits.length > 0) {
+      selectedUnits.forEach(unit => {
+        unit.die()
+      })
+      console.log(`Killed ${selectedUnits.length} selected unit(s)`)
+    }
   }
   
   // Clear all obstacles with 'C' key
