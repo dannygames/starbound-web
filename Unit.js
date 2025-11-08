@@ -1,5 +1,7 @@
 // Unit.js - Manages individual Zergling unit state and behavior
 
+import { COLOR_PALETTES } from './ColorShader.js'
+
 export const SPRITE_WIDTH = 40 // Each sprite frame width
 export const SPRITE_HEIGHT = 39 // Each sprite frame height
 export const SPRITE_OFFSET_X = 2 // Sprite sheet left padding
@@ -145,6 +147,7 @@ export class Unit {
           loadedCount++
           if (loadedCount === totalImages) {
             this.walkLayersLoaded = true
+            this.recolorWalkLayers()
             console.log('All walk animation layers loaded!')
           }
         }
@@ -170,6 +173,7 @@ export class Unit {
         loadedCount++
         if (loadedCount === layerCount) {
           this.deathLayersLoaded = true
+          this.recolorDeathLayers()
         }
       }
       img.onerror = () => {
@@ -178,6 +182,82 @@ export class Unit {
       img.src = `/images/maps/units/zergling/death/Layer ${i}.png`
       this.deathLayers.push(img)
     }
+  }
+
+  /**
+   * Recolor all walk animation layers using the color shader
+   */
+  recolorWalkLayers() {
+    if (!this.colorShader || this.colorPalette === 'magenta') {
+      return // No recoloring needed
+    }
+
+    const fileDirections = [0, 1, 2, 3, 5, 6, 7, 8]
+    
+    fileDirections.forEach(dir => {
+      if (!this.walkLayers[dir]) return
+      
+      const recoloredLayers = []
+      for (let i = 0; i < this.walkLayers[dir].length; i++) {
+        const originalImg = this.walkLayers[dir][i]
+        const recoloredCanvas = this.recolorImage(originalImg)
+        recoloredLayers.push(recoloredCanvas)
+      }
+      this.walkLayers[dir] = recoloredLayers
+    })
+  }
+
+  /**
+   * Recolor all death animation layers using the color shader
+   */
+  recolorDeathLayers() {
+    if (!this.colorShader || this.colorPalette === 'magenta') {
+      return // No recoloring needed
+    }
+
+    const recoloredLayers = []
+    for (let i = 0; i < this.deathLayers.length; i++) {
+      const originalImg = this.deathLayers[i]
+      const recoloredCanvas = this.recolorImage(originalImg)
+      recoloredLayers.push(recoloredCanvas)
+    }
+    this.deathLayers = recoloredLayers
+  }
+
+  /**
+   * Recolor a single image using the color shader
+   * @param {Image} img - Source image
+   * @returns {Canvas} Canvas with recolored image
+   */
+  recolorImage(img) {
+    if (!img.complete) {
+      return img // Return original if not loaded yet
+    }
+
+    // Create canvas to hold the recolored image
+    const canvas = document.createElement('canvas')
+    canvas.width = img.width
+    canvas.height = img.height
+    const ctx = canvas.getContext('2d', { willReadFrequently: true })
+
+    // Draw original image
+    ctx.drawImage(img, 0, 0)
+
+    // Apply color shader
+    if (this.colorShader && this.colorPalette !== 'magenta') {
+      const palette = COLOR_PALETTES[this.colorPalette]
+      
+      if (palette && palette.colors) {
+        this.colorShader.applyColorReplacement(
+          ctx, 
+          canvas.width, 
+          canvas.height, 
+          palette.colors
+        )
+      }
+    }
+
+    return canvas
   }
 
   /**
@@ -949,7 +1029,9 @@ export class Unit {
     const frameIndex = Math.floor(this.currentFrame)
     if (frameIndex >= 0 && frameIndex < directionLayers.length) {
       const layer = directionLayers[frameIndex]
-      if (layer && layer.complete) {
+      // Check if layer is ready: Canvas elements don't have .complete, Images do
+      const isReady = layer && (layer instanceof HTMLCanvasElement || layer.complete)
+      if (isReady) {
         // Apply horizontal mirroring if needed (for left side directions)
         if (shouldMirrorHorizontal) {
           ctx.scale(-1, 1)
@@ -972,7 +1054,9 @@ export class Unit {
     const layerIndex = Math.floor(this.currentFrame)
     if (layerIndex >= 0 && layerIndex < this.deathLayers.length) {
       const layer = this.deathLayers[layerIndex]
-      if (layer && layer.complete) {
+      // Check if layer is ready: Canvas elements don't have .complete, Images do
+      const isReady = layer && (layer instanceof HTMLCanvasElement || layer.complete)
+      if (isReady) {
         // Draw the death layer centered on the unit
         ctx.drawImage(
           layer,
@@ -1145,6 +1229,13 @@ export class Unit {
    */
   setColorPalette(paletteKey) {
     this.colorPalette = paletteKey
+    // Recolor the layers if they're loaded
+    if (this.walkLayersLoaded) {
+      this.recolorWalkLayers()
+    }
+    if (this.deathLayersLoaded) {
+      this.recolorDeathLayers()
+    }
   }
 
   /**
