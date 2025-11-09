@@ -1,6 +1,6 @@
 import './style.css'
-import { Unit, UnitState, SPRITE_SHEET, SPRITE_WIDTH, SPRITE_HEIGHT, 
-         SPRITE_OFFSET_X, SPRITE_OFFSET_Y, SPRITE_SPACING_X, SPRITE_SPACING_Y } from './Unit.js'
+import { Zergling } from './Zergling.js'
+import { UnitState } from './Unit.js'
 import { ColorShader, getRandomPalette } from './ColorShader.js'
 import { Grid, TILE_SIZE } from './Grid.js'
 import { findPath, smoothPath } from './Pathfinding.js'
@@ -126,7 +126,7 @@ function spawnUnit(x, y, colorPalette = null) {
     colorPalette = getRandomPalette()
   }
   
-  const unit = new Unit(x, y, colorPalette, game.spriteSheet, game.colorShader)
+  const unit = new Zergling(x, y, colorPalette, game.spriteSheet, game.colorShader)
   game.units.push(unit)
   updateStats()
 }
@@ -215,23 +215,30 @@ function createObstacles() {
 
 function preloadPalettes() {
   console.log('Preloading color palettes...')
-  const config = {
-    SPRITE_WIDTH,
-    SPRITE_HEIGHT,
-    SPRITE_OFFSET_X,
-    SPRITE_OFFSET_Y,
-    SPRITE_SPACING_X,
-    SPRITE_SPACING_Y,
-    SPRITE_SHEET
-  }
   
-  // Preload common palettes
-  game.colorShader.preloadPalette(game.spriteSheet, config, 'red')
-  game.colorShader.preloadPalette(game.spriteSheet, config, 'blue')
-  game.colorShader.preloadPalette(game.spriteSheet, config, 'green')
-  game.colorShader.preloadPalette(game.spriteSheet, config, 'yellow')
-  
-  console.log(`Total cached sprites: ${game.colorShader.getCacheSize()}`)
+  // Import Zergling sprite sheet configuration
+  import('./Zergling.js').then(module => {
+    const { SPRITE_WIDTH, SPRITE_HEIGHT, SPRITE_OFFSET_X, SPRITE_OFFSET_Y, 
+            SPRITE_SPACING_X, SPRITE_SPACING_Y, SPRITE_SHEET } = module
+    
+    const config = {
+      SPRITE_WIDTH,
+      SPRITE_HEIGHT,
+      SPRITE_OFFSET_X,
+      SPRITE_OFFSET_Y,
+      SPRITE_SPACING_X,
+      SPRITE_SPACING_Y,
+      SPRITE_SHEET
+    }
+    
+    // Preload common palettes
+    game.colorShader.preloadPalette(game.spriteSheet, config, 'red')
+    game.colorShader.preloadPalette(game.spriteSheet, config, 'blue')
+    game.colorShader.preloadPalette(game.spriteSheet, config, 'green')
+    game.colorShader.preloadPalette(game.spriteSheet, config, 'yellow')
+    
+    console.log(`Total cached sprites: ${game.colorShader.getCacheSize()}`)
+  })
 }
 
 function update(deltaTime) {
@@ -347,7 +354,16 @@ function handleMouseDown(e) {
   // If map editor is active, handle editor input
   if (game.mapEditor && game.mapEditor.isActive) {
     const tile = game.grid.worldToGrid(x, y)
-    game.mapEditor.startDrawing(tile.x, tile.y)
+    const result = game.mapEditor.startDrawing(tile.x, tile.y)
+    
+    // Handle unit placement
+    if (result.action === 'unit') {
+      const worldX = tile.x * TILE_SIZE + TILE_SIZE / 2
+      const worldY = tile.y * TILE_SIZE + TILE_SIZE / 2
+      spawnUnit(worldX, worldY, result.data.color)
+      console.log(`Placed ${result.data.color} unit at (${worldX}, ${worldY})`)
+    }
+    
     return
   }
 
@@ -397,7 +413,10 @@ function handleMouseMove(e) {
   
   // If map editor is active and drawing, continue drawing
   if (game.mapEditor && game.mapEditor.isActive && game.mapEditor.isDrawing) {
-    game.mapEditor.draw(game.hoveredTile.x, game.hoveredTile.y)
+    // Don't allow dragging in unit placement mode
+    if (!game.mapEditor.unitPlacementMode) {
+      game.mapEditor.draw(game.hoveredTile.x, game.hoveredTile.y)
+    }
   }
 
   if (game.isSelecting && (!game.mapEditor || !game.mapEditor.isActive)) {
@@ -567,6 +586,26 @@ function handleKeyDown(e) {
     if (e.key === 'b' || e.key === 'B') {
       game.mapEditor.toggleBackgroundMode()
       return
+    }
+    
+    // Toggle unit placement mode
+    if (e.key === 'u' || e.key === 'U') {
+      game.mapEditor.toggleUnitPlacementMode()
+      return
+    }
+    
+    // Unit placement mode controls
+    if (game.mapEditor.unitPlacementMode) {
+      // Cycle colors
+      if (e.key === ',' || e.key === '<') {
+        game.mapEditor.previousColor()
+        return
+      } else if (e.key === '.' || e.key === '>') {
+        game.mapEditor.nextColor()
+        return
+      }
+      
+      return // Don't process other controls in unit placement mode
     }
     
     // Background image mode controls
