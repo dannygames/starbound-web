@@ -57,6 +57,7 @@ function init() {
   
   // Initialize map editor
   game.mapEditor = new MapEditor(game.grid)
+  game.mapEditor.setGame(game) // Set game reference for button access
   
   // Add some unwalkable obstacles
   createObstacles()
@@ -169,6 +170,9 @@ function loadBackgroundImageFromFile() {
   input.click()
 }
 
+// Expose function to window for MapEditor access
+window.loadBackgroundImageFromFile = loadBackgroundImageFromFile
+
 /**
  * Create obstacles on the map
  */
@@ -252,11 +256,6 @@ function update(deltaTime) {
   if (game.cursor) {
     game.cursor.update(deltaTime)
   }
-  
-  // Update map editor UI if active
-  if (game.mapEditor && game.mapEditor.isActive) {
-    game.mapEditor.updateUI(game)
-  }
 
   updateStats()
 }
@@ -268,10 +267,7 @@ function render() {
   ctx.fillStyle = '#808080'
   ctx.fillRect(0, 0, CANVAS_WIDTH, CANVAS_HEIGHT)
 
-  // Draw tile grid (show grid lines and blocked tiles)
-  game.grid.draw(ctx, true, true)
-  
-  // Draw background image overlay (if loaded)
+  // Draw background image FIRST (under everything)
   if (game.backgroundImageLoaded && game.backgroundImage) {
     ctx.save()
     ctx.globalAlpha = game.backgroundImageOpacity
@@ -282,6 +278,11 @@ function render() {
     )
     ctx.restore()
   }
+  
+  // Draw tile grid on top of background ONLY if map editor is active
+  const showGrid = game.mapEditor && game.mapEditor.isActive
+  const showWalls = game.mapEditor && game.mapEditor.isActive
+  game.grid.draw(ctx, showGrid, showWalls)
 
   // Debug visualizations
   if (game.debugMode) {
@@ -347,6 +348,11 @@ function render() {
 }
 
 function handleMouseDown(e) {
+  // Don't handle if clicking on the map editor panel
+  if (e.target.closest('.map-editor-panel')) {
+    return
+  }
+  
   const rect = game.canvas.getBoundingClientRect()
   const x = e.clientX - rect.left
   const y = e.clientY - rect.top
@@ -397,6 +403,11 @@ function handleMouseDown(e) {
 }
 
 function handleMouseMove(e) {
+  // Don't handle if over the map editor panel
+  if (e.target.closest('.map-editor-panel')) {
+    return
+  }
+  
   const rect = game.canvas.getBoundingClientRect()
   const x = e.clientX - rect.left
   const y = e.clientY - rect.top
@@ -431,6 +442,11 @@ function handleMouseMove(e) {
 }
 
 function handleMouseUp(e) {
+  // Don't handle if clicking on the map editor panel
+  if (e.target.closest('.map-editor-panel')) {
+    return
+  }
+  
   // Stop map editor drawing
   if (game.mapEditor && game.mapEditor.isActive) {
     game.mapEditor.stopDrawing()

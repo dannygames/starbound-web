@@ -3,6 +3,7 @@
 export class MapEditor {
   constructor(grid) {
     this.grid = grid
+    this.game = null // Will be set later
     this.isActive = false
     this.currentTool = 'wall' // wall, eraser, unit
     this.brushSize = 1
@@ -23,6 +24,40 @@ export class MapEditor {
     this.panel = document.getElementById('mapEditorPanel')
     this.title = document.getElementById('editorTitle')
     this.content = document.getElementById('editorContent')
+    
+    // Flag to track if event listener is attached
+    this.listenerAttached = false
+    
+    // Set up event delegation on the content panel (only once)
+    this.setupEventDelegation()
+  }
+  
+  /**
+   * Set up event delegation for button clicks (called once)
+   */
+  setupEventDelegation() {
+    if (!this.content || this.listenerAttached) return
+    
+    this.content.addEventListener('click', (e) => {
+      // Find the closest element with data-action
+      const target = e.target.closest('[data-action]')
+      if (target) {
+        e.preventDefault()
+        e.stopPropagation()
+        console.log(`Button clicked: ${target.dataset.action}`)
+        this.handleButtonClick(target.dataset.action, target.dataset.color, this.game)
+      }
+    })
+    
+    this.listenerAttached = true
+    console.log('Event delegation set up on content panel')
+  }
+  
+  /**
+   * Set game reference (call this after creating the map editor)
+   */
+  setGame(game) {
+    this.game = game
   }
 
   /**
@@ -401,6 +436,9 @@ export class MapEditor {
    * Update the HTML UI panel
    */
   updateUI(game) {
+    // Use stored game reference if not provided
+    const gameRef = game || this.game
+    
     if (!this.isActive || !this.content) return
     
     // Update title
@@ -417,62 +455,262 @@ export class MapEditor {
     let html = ''
     
     if (this.backgroundImageMode) {
-      const bgX = game?.backgroundImageOffset?.x || 0
-      const bgY = game?.backgroundImageOffset?.y || 0
-      const bgOpacity = game?.backgroundImageOpacity || 1
-      const bgLoaded = game?.backgroundImageLoaded ? 'YES' : 'NO'
+      const bgX = gameRef?.backgroundImageOffset?.x || 0
+      const bgY = gameRef?.backgroundImageOffset?.y || 0
+      const bgOpacity = gameRef?.backgroundImageOpacity || 1
+      const bgLoaded = gameRef?.backgroundImageLoaded ? 'YES' : 'NO'
       
       html = `
-        <div class="info-line">Image Loaded: ${bgLoaded}</div>
-        <div class="info-line">Position: (${bgX}, ${bgY})</div>
-        <div class="info-line">Opacity: ${bgOpacity.toFixed(2)}</div>
+        <div class="info-section">
+          <div class="info-line">Image Loaded: ${bgLoaded}</div>
+          <div class="info-line">Position: (${bgX}, ${bgY})</div>
+          <div class="info-line">Opacity: ${bgOpacity.toFixed(2)}</div>
+        </div>
         
-        <div class="section-title">CONTROLS:</div>
-        <div class="control-line">O - Load Image</div>
-        <div class="control-line">Arrow Keys - Move</div>
-        <div class="control-line">+/- - Opacity</div>
-        <div class="control-line">R - Reset Position</div>
-        <div class="control-line">B - Exit BG Mode</div>
-        <div class="control-line">M - Exit Editor</div>
+        <div class="button-section">
+          <button class="editor-btn" data-action="loadImage">Load Image</button>
+        </div>
+        
+        <div class="section-title">MOVE IMAGE:</div>
+        <div class="button-grid-arrows">
+          <button class="editor-btn arrow-btn" data-action="moveUp">▲</button>
+          <div class="arrow-row">
+            <button class="editor-btn arrow-btn" data-action="moveLeft">◀</button>
+            <button class="editor-btn arrow-btn" data-action="moveDown">▼</button>
+            <button class="editor-btn arrow-btn" data-action="moveRight">▶</button>
+          </div>
+        </div>
+        
+        <div class="section-title">OPACITY:</div>
+        <div class="button-group">
+          <button class="editor-btn" data-action="opacityDecrease">-</button>
+          <button class="editor-btn" data-action="opacityIncrease">+</button>
+        </div>
+        
+        <div class="button-section">
+          <button class="editor-btn" data-action="resetPosition">Reset Position</button>
+          <button class="editor-btn danger-btn" data-action="exitBackgroundMode">Exit BG Mode</button>
+          <button class="editor-btn danger-btn" data-action="exitEditor">Exit Editor</button>
+        </div>
       `
     } else if (this.unitPlacementMode) {
+      const colorDots = this.availableColors.map(color => {
+        const isSelected = color === this.selectedUnitColor
+        return `<div class="color-dot ${isSelected ? 'selected' : ''}" 
+                     style="background-color: ${this.getColorHex(color)}"
+                     data-action="selectColor"
+                     data-color="${color}"
+                     title="${color}"></div>`
+      }).join('')
+      
       html = `
-        <div class="info-line">Color: ${this.selectedUnitColor.toUpperCase()}</div>
-        <div class="info-line">Click to Place Unit</div>
+        <div class="info-section">
+          <div class="info-line">Selected Color:</div>
+          <div class="color-preview" style="background-color: ${this.getColorHex(this.selectedUnitColor)}"></div>
+          <div class="info-line">${this.selectedUnitColor.toUpperCase()}</div>
+          <div class="info-line">Click map to place unit</div>
+        </div>
         
-        <div class="section-title">CONTROLS:</div>
-        <div class="control-line">Click - Place Unit</div>
-        <div class="control-line">, - Previous Color</div>
-        <div class="control-line">. - Next Color</div>
-        <div class="control-line">U - Exit Unit Mode</div>
-        <div class="control-line">M - Exit Editor</div>
+        <div class="section-title">COLOR PALETTE:</div>
+        <div class="button-group">
+          <button class="editor-btn" data-action="previousColor">◀ Prev</button>
+          <button class="editor-btn" data-action="nextColor">Next ▶</button>
+        </div>
         
-        <div class="section-title">COLORS:</div>
-        ${this.availableColors.map(color => {
-          const marker = color === this.selectedUnitColor ? '▶' : ' '
-          return `<div class="control-line">${marker} ${color}</div>`
-        }).join('')}
+        <div class="color-palette">
+          ${colorDots}
+        </div>
+        
+        <div class="button-section">
+          <button class="editor-btn danger-btn" data-action="exitUnitMode">Exit Unit Mode</button>
+          <button class="editor-btn danger-btn" data-action="exitEditor">Exit Editor</button>
+        </div>
       `
     } else {
       html = `
-        <div class="info-line">Tool: ${this.currentTool.toUpperCase()}</div>
-        <div class="info-line">Brush: ${this.brushSize}x${this.brushSize}</div>
+        <div class="info-section">
+          <div class="info-line">Tool: ${this.currentTool.toUpperCase()}</div>
+          <div class="info-line">Brush: ${this.brushSize}x${this.brushSize}</div>
+        </div>
         
-        <div class="section-title">CONTROLS:</div>
-        <div class="control-line">1 - Wall Tool</div>
-        <div class="control-line">2 - Eraser Tool</div>
-        <div class="control-line">[ ] - Brush Size</div>
-        <div class="control-line">U - Unit Placement</div>
-        <div class="control-line">B - Background Mode</div>
-        <div class="control-line">E - Export Map</div>
-        <div class="control-line">S - Save Map</div>
-        <div class="control-line">L - Load Menu</div>
-        <div class="control-line">C - Clear Map</div>
-        <div class="control-line">M - Toggle Editor</div>
+        <div class="section-title">TOOLS:</div>
+        <div class="button-group">
+          <button class="editor-btn ${this.currentTool === 'wall' ? 'active' : ''}" data-action="setToolWall">Wall</button>
+          <button class="editor-btn ${this.currentTool === 'eraser' ? 'active' : ''}" data-action="setToolEraser">Eraser</button>
+        </div>
+        
+        <div class="section-title">BRUSH SIZE:</div>
+        <div class="button-group">
+          <button class="editor-btn" data-action="brushDecrease">-</button>
+          <span class="brush-size-display">${this.brushSize}</span>
+          <button class="editor-btn" data-action="brushIncrease">+</button>
+        </div>
+        
+        <div class="section-title">MODES:</div>
+        <div class="button-section">
+          <button class="editor-btn" data-action="unitPlacementMode">Unit Placement</button>
+          <button class="editor-btn" data-action="backgroundMode">Background Mode</button>
+        </div>
+        
+        <div class="section-title">ACTIONS:</div>
+        <div class="button-section">
+          <button class="editor-btn" data-action="saveMap">Save Map</button>
+          <button class="editor-btn" data-action="loadMap">Load Map</button>
+          <button class="editor-btn" data-action="exportMap">Export Map</button>
+          <button class="editor-btn" data-action="importMap">Import Map</button>
+          <button class="editor-btn danger-btn" data-action="clearMap">Clear Map</button>
+          <button class="editor-btn danger-btn" data-action="exitEditor">Exit Editor</button>
+        </div>
       `
     }
     
     this.content.innerHTML = html
+    // Event delegation is already set up in constructor, no need to attach listeners here
+  }
+  
+  /**
+   * Handle button click actions
+   */
+  handleButtonClick(action, colorData, game) {
+    // Use stored game reference if not provided
+    const gameRef = game || this.game
+    
+    switch (action) {
+      // Main editor mode
+      case 'setToolWall':
+        this.setTool('wall')
+        break
+      case 'setToolEraser':
+        this.setTool('eraser')
+        break
+      case 'brushDecrease':
+        this.setBrushSize(this.brushSize - 1)
+        break
+      case 'brushIncrease':
+        this.setBrushSize(this.brushSize + 1)
+        break
+      case 'unitPlacementMode':
+        this.toggleUnitPlacementMode()
+        break
+      case 'backgroundMode':
+        this.toggleBackgroundMode()
+        break
+      case 'saveMap':
+        const name = prompt('Enter map name:')
+        if (name) {
+          this.saveMap(name)
+          alert('Map saved!')
+        }
+        break
+      case 'loadMap':
+        this.showLoadMapDialog()
+        break
+      case 'exportMap':
+        this.exportMap()
+        alert('Map exported to console and clipboard!')
+        break
+      case 'importMap':
+        const json = prompt('Paste map JSON:')
+        if (json) {
+          if (this.importMap(json)) {
+            alert('Map imported successfully!')
+          } else {
+            alert('Failed to import map')
+          }
+        }
+        break
+      case 'clearMap':
+        if (confirm('Clear entire map?')) {
+          this.clearMap()
+        }
+        break
+      case 'exitEditor':
+        this.toggle()
+        break
+        
+      // Unit placement mode
+      case 'previousColor':
+        this.previousColor()
+        break
+      case 'nextColor':
+        this.nextColor()
+        break
+      case 'selectColor':
+        if (colorData) {
+          this.colorIndex = this.availableColors.indexOf(colorData)
+          this.selectedUnitColor = colorData
+          console.log(`Selected color: ${this.selectedUnitColor}`)
+          this.updateUI(gameRef)
+        }
+        break
+      case 'exitUnitMode':
+        this.toggleUnitPlacementMode()
+        break
+        
+      // Background mode
+      case 'loadImage':
+        // Trigger file picker
+        if (window.loadBackgroundImageFromFile) {
+          window.loadBackgroundImageFromFile()
+        }
+        break
+      case 'moveUp':
+        this.moveBackgroundImage(gameRef, 0, -1)
+        break
+      case 'moveDown':
+        this.moveBackgroundImage(gameRef, 0, 1)
+        break
+      case 'moveLeft':
+        this.moveBackgroundImage(gameRef, -1, 0)
+        break
+      case 'moveRight':
+        this.moveBackgroundImage(gameRef, 1, 0)
+        break
+      case 'opacityIncrease':
+        this.adjustBackgroundOpacity(gameRef, 0.1)
+        break
+      case 'opacityDecrease':
+        this.adjustBackgroundOpacity(gameRef, -0.1)
+        break
+      case 'resetPosition':
+        this.resetBackgroundPosition(gameRef)
+        this.updateUI(gameRef)
+        break
+      case 'exitBackgroundMode':
+        this.toggleBackgroundMode()
+        break
+    }
+  }
+  
+  /**
+   * Show load map dialog
+   */
+  showLoadMapDialog() {
+    const maps = this.getSavedMaps()
+    
+    if (maps.length === 0) {
+      alert('No saved maps found')
+      return
+    }
+    
+    let message = 'Saved Maps:\n\n'
+    maps.forEach((map, i) => {
+      const date = new Date(map.timestamp).toLocaleString()
+      message += `${i}: ${map.name} (${map.tileCount} tiles, ${date})\n`
+    })
+    message += '\nEnter map number to load:'
+    
+    const input = prompt(message)
+    if (input !== null) {
+      const index = parseInt(input)
+      if (!isNaN(index)) {
+        if (this.loadMap(index)) {
+          alert('Map loaded!')
+        } else {
+          alert('Failed to load map')
+        }
+      }
+    }
   }
 
   /**
